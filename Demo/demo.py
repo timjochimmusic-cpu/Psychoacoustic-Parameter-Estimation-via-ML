@@ -2,6 +2,10 @@ import sys
 import time
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("QtAgg")
+
 import matplotlib.pyplot as plt
 import numpy as np
 import sounddevice as sd
@@ -145,7 +149,7 @@ def _load_model(device: torch.device) -> PsychoacousticModel:
 
 # ── plotting ─────────────────────────────────────────────────────────
 class LivePlotter:
-    WINDOW_S = 20.0
+    WINDOW_S = 40.0
 
     def __init__(self):
         plt.ion()
