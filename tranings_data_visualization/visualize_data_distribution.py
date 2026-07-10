@@ -1,6 +1,7 @@
 import os
 import sys
 import warnings
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,9 +15,11 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 CSV_PATH = os.path.join(
     _ROOT, "data", "standardized_audio_files", "training_set",
-    "visualization", "all_psychoacoustic_labels.csv",
+    "all_psychoacoustic_labels.csv",
 )
 OUTPUT_DIR = os.path.join(_ROOT, "data", "standardized_audio_files", "training_set", "visualization")
+TRAIN_DIR = os.path.join(_ROOT, "data", "standardized_audio_files", "training_set", "sound_files", "train")
+VAL_DIR = os.path.join(_ROOT, "data", "standardized_audio_files", "training_set", "sound_files", "val")
 
 PARAM_NAMES = [
     "loudness_zwtv",
@@ -35,6 +38,21 @@ PARAM_LABELS = {
 }
 
 CHUNK_SIZE = 50000
+
+
+def _get_split_sources(train_dir: str, val_dir: str) -> tuple[set[str], set[str]]:
+    """Returns the expected source_file names (i.e. '<stem>.csv') for the
+    train and val WAV folders, based on calculate_reference_values.py's
+    naming convention (<stem>.wav -> <stem>.csv)."""
+    train_sources = {f"{p.stem}.csv" for p in Path(train_dir).glob("*.wav")}
+    val_sources = {f"{p.stem}.csv" for p in Path(val_dir).glob("*.wav")}
+    return train_sources, val_sources
+
+
+def _split_df(df: pd.DataFrame, train_sources: set[str], val_sources: set[str]) -> tuple[pd.DataFrame, pd.DataFrame]:
+    df_train = df[df["source_file"].isin(train_sources)]
+    df_val = df[df["source_file"].isin(val_sources)]
+    return df_train, df_val
 
 
 def _load_chunked(filepath: str) -> pd.DataFrame:
@@ -63,9 +81,10 @@ def _load_with_source(filepath: str) -> pd.DataFrame:
     return pd.concat(chunks, ignore_index=True)
 
 
-def plot_histograms(df: pd.DataFrame, output_dir: str):
+def plot_histograms(df: pd.DataFrame, output_dir: str, split_label: str):
     n = len(PARAM_NAMES)
     fig, axes = plt.subplots(n, 1, figsize=(10, 3 * n))
+    fig.suptitle(f"Parameter distributions — {split_label}")
     for ax, name in zip(axes, PARAM_NAMES):
         col = df[name].dropna().values
         ax.hist(col, bins=80, density=True, alpha=0.7, color="steelblue", edgecolor="white", linewidth=0.3)
@@ -73,21 +92,22 @@ def plot_histograms(df: pd.DataFrame, output_dir: str):
         ax.set_ylabel("Density")
         ax.set_xlabel("Value")
     fig.tight_layout()
-    path = os.path.join(output_dir, "parameter_distributions.png")
+    path = os.path.join(output_dir, f"parameter_distributions_{split_label}.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"Saved: {path}")
 
 
-def plot_average_per_time_segment(df: pd.DataFrame, output_dir: str):
-    """Mean of each parameter at each time_index across all files."""
+def plot_average_per_time_segment(df: pd.DataFrame, output_dir: str, split_label: str):
+    """Mean of each parameter at each time_index, for one split (train/val)."""
     grouped = df.groupby("time_index", observed=True)[PARAM_NAMES].mean()
-    csv_path = os.path.join(output_dir, "parameter_average_per_time_segment.csv")
+    csv_path = os.path.join(output_dir, f"parameter_average_per_time_segment_{split_label}.csv")
     grouped.to_csv(csv_path)
     print(f"Saved: {csv_path}")
 
     n = len(PARAM_NAMES)
     fig, axes = plt.subplots(n, 1, figsize=(10, 3 * n))
+    fig.suptitle(f"Average per time segment — {split_label}")
     for ax, name in zip(axes, PARAM_NAMES):
         pts = grouped[name].dropna()
         if len(pts) <= 2:
@@ -100,25 +120,26 @@ def plot_average_per_time_segment(df: pd.DataFrame, output_dir: str):
         ax.set_ylabel("Mean value")
         ax.grid(True, alpha=0.3)
     fig.tight_layout()
-    path = os.path.join(output_dir, "parameter_average_per_time_segment.png")
+    path = os.path.join(output_dir, f"parameter_average_per_time_segment_{split_label}.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"Saved: {path}")
 
 
-def plot_length_distribution(df: pd.DataFrame, output_dir: str):
+def plot_length_distribution(df: pd.DataFrame, output_dir: str, split_label: str):
     """Per-file frame count for each parameter: min, max, avg + distribution."""
     csv_rows = []
     for name in PARAM_NAMES:
         col = df.groupby("source_file", observed=True)[name].count()
         csv_rows.append({"parameter": name, "min": col.min(), "max": col.max(), "mean": col.mean()})
-    csv_path = os.path.join(output_dir, "parameter_length_stats.csv")
+    csv_path = os.path.join(output_dir, f"parameter_length_stats_{split_label}.csv")
     pd.DataFrame(csv_rows).to_csv(csv_path, index=False)
     print(f"Saved: {csv_path}")
 
     n = len(PARAM_NAMES)
     fig, axes = plt.subplots(2, n, figsize=(5 * n, 7),
                              gridspec_kw={"height_ratios": [1, 2]})
+    fig.suptitle(f"Frame length distribution — {split_label}")
 
     for i, name in enumerate(PARAM_NAMES):
         col = df.groupby("source_file", observed=True)[name].count()
@@ -144,16 +165,16 @@ def plot_length_distribution(df: pd.DataFrame, output_dir: str):
                             ha="center", fontsize=8)
 
     fig.tight_layout()
-    path = os.path.join(output_dir, "parameter_length_stats.png")
+    path = os.path.join(output_dir, f"parameter_length_stats_{split_label}.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"Saved: {path}")
 
 
-def plot_value_stats(df: pd.DataFrame, output_dir: str):
-    """Min, max, mean of actual parameter values across all data."""
+def plot_value_stats(df: pd.DataFrame, output_dir: str, split_label: str):
+    """Min, max, mean of actual parameter values for one split (train/val)."""
     stats = df[PARAM_NAMES].describe()
-    csv_path = os.path.join(output_dir, "parameter_value_stats.csv")
+    csv_path = os.path.join(output_dir, f"parameter_value_stats_{split_label}.csv")
     stats.to_csv(csv_path)
     print(f"Saved: {csv_path}")
 
@@ -163,6 +184,7 @@ def plot_value_stats(df: pd.DataFrame, output_dir: str):
     means = stats.loc["mean"].values
 
     fig, ax = plt.subplots(figsize=(10, 5))
+    fig.suptitle(f"Value stats — {split_label}")
     w = 0.25
     bars_min = ax.bar([i - w for i in x], mins, width=w, label="Min", color="cornflowerblue")
     bars_mean = ax.bar(x, means, width=w, label="Mean", color="seagreen")
@@ -179,7 +201,7 @@ def plot_value_stats(df: pd.DataFrame, output_dir: str):
     ax.set_ylabel("Value")
     ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
-    path = os.path.join(output_dir, "parameter_value_stats.png")
+    path = os.path.join(output_dir, f"parameter_value_stats_{split_label}.png")
     fig.savefig(path, dpi=150)
     plt.close(fig)
     print(f"Saved: {path}")
@@ -188,24 +210,30 @@ def plot_value_stats(df: pd.DataFrame, output_dir: str):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    print(f"Reading {CSV_PATH} ...")
-    df = _load_chunked(CSV_PATH)
-    print(f"Loaded {len(df):,} rows, {len(df.columns)} columns (no source_file)")
+    train_sources, val_sources = _get_split_sources(TRAIN_DIR, VAL_DIR)
+    print(f"train: {len(train_sources)} files — val: {len(val_sources)} files")
 
-    plot_histograms(df, OUTPUT_DIR)
-    plot_average_per_time_segment(df, OUTPUT_DIR)
-    plot_value_stats(df, OUTPUT_DIR)
-
-    del df
-
-    print("Re-reading with source_file for length analysis ...")
+    print(f"Reading {CSV_PATH} (with source_file, for splitting) ...")
     df2 = _load_with_source(CSV_PATH)
     print(f"Loaded {len(df2):,} rows")
 
-    plot_length_distribution(df2, OUTPUT_DIR)
+    df2_train, df2_val = _split_df(df2, train_sources, val_sources)
+    df_train = df2_train.drop(columns=["source_file"])
+    df_val = df2_val.drop(columns=["source_file"])
+    del df2
 
-    print("\nSummary statistics:")
-    print(df2[PARAM_NAMES].describe().to_string())
+    for split_label, split_df, split_df_with_source in [
+        ("train", df_train, df2_train),
+        ("val", df_val, df2_val),
+    ]:
+        print(f"\n=== {split_label}: {len(split_df):,} rows ===")
+        plot_histograms(split_df, OUTPUT_DIR, split_label)
+        plot_average_per_time_segment(split_df, OUTPUT_DIR, split_label)
+        plot_value_stats(split_df, OUTPUT_DIR, split_label)
+        plot_length_distribution(split_df_with_source, OUTPUT_DIR, split_label)
+
+        print(f"\nSummary statistics ({split_label}):")
+        print(split_df[PARAM_NAMES].describe().to_string())
 
 
 if __name__ == "__main__":

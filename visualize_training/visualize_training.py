@@ -19,6 +19,20 @@ def _plot_panel(df: pd.DataFrame, col: str, ax: plt.Axes):
     ax.grid(True, alpha=0.15)
 
 
+def _plot_train_val_panel(df: pd.DataFrame, col: str, ax: plt.Axes):
+    ax.plot(df["epoch"], df[col], marker=".", color="#00bfff", label="train")
+    val_col = f"val_{col}"
+    if val_col in df.columns:
+        ax.plot(df["epoch"], df[val_col], marker=".", color="#ff6b6b", label="val")
+        ax.legend(facecolor="#1e1e1e", labelcolor="#cccccc", fontsize=8)
+    ax.set_title(col, color="white")
+    ax.set_xlabel("Epoch", color="#cccccc")
+    ax.set_ylabel("Loss", color="#cccccc")
+    ax.set_yscale("log")
+    ax.tick_params(colors="#cccccc")
+    ax.grid(True, alpha=0.15)
+
+
 def plot_losses(csv_path: Path, plot_path: Path | None = None):
     df = pd.read_csv(csv_path)
     plt.ion()
@@ -30,7 +44,7 @@ def plot_losses(csv_path: Path, plot_path: Path | None = None):
     fig.suptitle("Training Loss per Parameter", color="white")
     for row_idx, row_names in enumerate(_PARAM_GRID):
         for col_idx, name in enumerate(row_names):
-            _plot_panel(df, name, axes[row_idx, col_idx])
+            _plot_train_val_panel(df, name, axes[row_idx, col_idx])
     fig.set_size_inches(14, 7)
     plt.tight_layout()
     plt.draw()

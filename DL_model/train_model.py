@@ -99,14 +99,27 @@ class PsychoAcousticDataset(Dataset):
             print(f"  done in {elapsed:.4f} s — saving cache to {labels_cache}")
             torch.save({"stems": all_stems, "labels": all_labels}, labels_cache)
 
+        # Filter to only the stems whose WAV file actually exists in sound_dir.
+        # Necessary after split_train_val.py has moved files into train/ or
+        # val/ subfolders — the cached/parsed label list still references
+        # ALL original stems, regardless of which physical folder they now
+        # live in.
+        available_stems = {p.stem for p in self.sound_dir.glob("*.wav")}
+        missing_before_filter = len(all_stems)
+        all_stems = [s for s in all_stems if s in available_stems]
+        n_filtered = missing_before_filter - len(all_stems)
+        if n_filtered > 0:
+            print(f"  Filtered out {n_filtered} stems not present in {self.sound_dir} "
+                  f"(likely moved to a different split folder)")
+
         if subset_indices is not None:
             self.stems = [all_stems[i] for i in subset_indices]
             self._labels = {s: all_labels[s] for s in self.stems}
         else:
             self.stems = all_stems
-            self._labels = all_labels
+            self._labels = {s: all_labels[s] for s in self.stems}
 
-        audio_cache = self.csv_path.with_suffix(".audio.pt")
+        audio_cache = self.sound_dir / "_audio_cache.pt"
         if audio_cache.exists():
             print(f"Loading pre-parsed audio from {audio_cache}...")
             t0 = time.perf_counter()
@@ -311,7 +324,7 @@ def _compare_epoch(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    stats_path = Path(__file__).parent.parent / "data" / "standardized_audio_files" / "training_set" / "visualization" / "parameter_average_per_time_segment.csv"
+    stats_path = Path(__file__).parent.parent / "data" / "standardized_audio_files" / "training_set" / "visualization" / "parameter_average_per_time_segment_train.csv"
 
     biases = _load_time_biases(stats_path)
     model = PsychoacousticModel(initial_temporal_biases=biases).to(device)
@@ -456,6 +469,9 @@ def train_model(
     subset_indices: list[int] | None = None,
     dataset: PsychoAcousticDataset | None = None,
     audio_workers: int = 0,
+    val_sound_dir: Path | None = None,
+    val_dataset: PsychoAcousticDataset | None = None,
+    use_scheduler: bool = True,
 ) -> list[dict[str, float]]:
     print("=" * 100)
     device = _get_device(device_id)
@@ -468,13 +484,17 @@ def train_model(
     plot_path = losses_dir / "losses.png"
 
     # ── Model ──
-    stats_path = Path(__file__).parent.parent / "data" / "standardized_audio_files" / "training_set" / "visualization" / "parameter_average_per_time_segment.csv"
+    stats_path = Path(__file__).parent.parent / "data" / "standardized_audio_files" / "training_set" / "visualization" / "parameter_average_per_time_segment_train.csv"
     biases = _load_time_biases(stats_path)
     model = PsychoacousticModel(initial_temporal_biases=biases).to(device)
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=10, factor=0.5) if use_scheduler else None
 
     # ── Resume from latest checkpoint ──
     start_epoch, history = _resume_checkpoint(model, optimizer, checkpoint_dir)
+    if not use_scheduler:
+        for param_group in optimizer.param_groups:
+            param_group["lr"] = lr
     if start_epoch == 0:
         csv_path.unlink(missing_ok=True)
         print("Starting from scratch")
@@ -495,12 +515,20 @@ def train_model(
 
     # ── Dataset ──
     if dataset is None:
-        dataset = PsychoAcousticDataset(sound_dir, labels_csv_path, subset_indices=subset_indices,
-                                        audio_workers=audio_workers)
+        dataset = PsychoAcousticDataset(sound_dir, labels_csv_path, subset_indices=subset_indices, audio_workers=audio_workers)
     if len(dataset) == 0:
         print("No data found — nothing to train on.")
         return []
-    print(f"Loaded {len(dataset)} audio-label pair(s)")
+    print(f"Loaded {len(dataset)} train audio-label pair(s)")
+
+    # ── Validation dataset (physically separate folder, see split_train_val.py) ──
+    if val_dataset is None and val_sound_dir is not None:
+        val_dataset = PsychoAcousticDataset(val_sound_dir, labels_csv_path, audio_workers=audio_workers)
+    if val_dataset is None or len(val_dataset) == 0:
+        print("No validation data found — proceeding without validation.")
+        val_dataset = None
+    else:
+        print(f"Loaded {len(val_dataset)} val audio-label pair(s)")
 
     loader = DataLoader(
         dataset,
@@ -509,6 +537,16 @@ def train_model(
         collate_fn=_collate,
         num_workers=num_workers,
     )
+
+    val_loader = None
+    if val_dataset is not None:
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=_collate,
+            num_workers=num_workers,
+        )
 
     t_train_start = time.perf_counter()
     n_batches = len(loader)
@@ -528,11 +566,41 @@ def train_model(
         t_total = time.perf_counter() - t_epoch
 
         avg_losses = {
-            k: torch.tensor([b[k] for b in epoch_losses]).mean().item()
+            k: torch.tensor([b[k] for b in epoch_losses]).nanmean().item()
             for k in epoch_losses[0]
         }
-        history.append(avg_losses)
-        print(f"Epoch {epoch + 1}/{epochs} — loss: {avg_losses['total']:.6f} — {t_total:.4f}s")
+
+        # ── Validation ──
+        if val_loader is not None:
+            model.eval()
+            val_losses_epoch: list[dict[str, float]] = []
+            with torch.no_grad():
+                for waveform, targets in val_loader:
+                    waveform = waveform.to(device)
+                    targets = {n: t.to(device) for n, t in targets.items()}
+                    preds = model(waveform)
+                    trimmed = {n: targets[n][:, :preds[n].shape[-1]] for n in PARAM_NAMES}
+                    v_losses = compute_loss(model, preds, trimmed)
+                    val_losses_epoch.append({k: v.item() for k, v in v_losses.items()})
+            model.train()
+
+            avg_val_losses = {
+                k: torch.tensor([b[k] for b in val_losses_epoch]).nanmean().item()
+                for k in val_losses_epoch[0]
+            }
+            for k, v in avg_val_losses.items():
+                avg_losses[f"val_{k}"] = v
+
+            history.append(avg_losses)
+            print(f"Epoch {epoch + 1}/{epochs} — loss: {avg_losses['total']:.6f} — val_loss: {avg_losses['val_total']:.6f} — {t_total:.4f}s")
+            if scheduler is not None:
+                scheduler.step(avg_losses['val_total'])
+        else:
+            history.append(avg_losses)
+            print(f"Epoch {epoch + 1}/{epochs} — loss: {avg_losses['total']:.6f} — {t_total:.4f}s")
+            if scheduler is not None:
+                scheduler.step(avg_losses['total'])
+        print(f"  current lr: {optimizer.param_groups[0]['lr']:.6f}")
 
         _log_epoch(epoch, avg_losses, model, optimizer, history, csv_path, plot_path, checkpoint_dir)
 
