@@ -149,7 +149,7 @@ def _load_model(device: torch.device) -> PsychoacousticModel:
 
 # ── plotting ─────────────────────────────────────────────────────────
 class LivePlotter:
-    WINDOW_S = 40.0
+    WINDOW_S = 20.0
 
     def __init__(self):
         plt.ion()
@@ -198,6 +198,7 @@ class LivePlotter:
         t_end = t_start + 1.0
 
         if t_end >= self.window_end:
+            self.save(_DIR / "example images" / f"segment_{self.window_start:.1f}s-{self.window_end:.1f}s.png")
             for name in PARAM_NAMES:
                 self.grid_buf[name].clear()
             self.window_start = self.window_end
@@ -240,6 +241,11 @@ class LivePlotter:
 
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
+
+    def save(self, path: Path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.fig.savefig(str(path), dpi=150, bbox_inches="tight")
+        print(f"Saved: {path.name}")
 
     def close(self):
         plt.ioff()
