@@ -277,8 +277,8 @@ def _save_prediction_plots(output_dir: Path, stem: str, preds: dict[str, torch.T
 
         fig, ax = plt.subplots(figsize=(10, 4))
         if n_frames == 1:
-            ax.axhline(y=t_np[0], label="target", color="tab:blue", alpha=0.8, linestyle="--")
-            ax.axhline(y=p_np[0], label="prediction", color="tab:red", alpha=0.8, linestyle="--")
+            ax.axhline(y=t_np[0], label="target", color="tab:blue", alpha=0.8)
+            ax.axhline(y=p_np[0], label="prediction", color="tab:red", alpha=0.8)
         else:
             ax.plot(t_np, label="target", color="tab:blue", alpha=0.8)
             ax.plot(p_masked, label="prediction", color="tab:red", alpha=0.8)
@@ -309,64 +309,115 @@ def _save_comparison_csv(output_dir: Path, stem: str, preds: dict[str, torch.Ten
     pd.DataFrame(df_dict).to_csv(output_dir / f"{prefix}{stem}_comparison.csv", index=False)
 
 
-def _compare_epoch(
+def _load_epoch_predictions(
     dataset: PsychoAcousticDataset,
     checkpoint_dir: Path,
-    output_dir: Path,
-    n_samples: int = 1,
-    device: torch.device | None = None,
-    epoch: int | str = "newest",
-    epoch_tag: str = "",
-):
-    """Run inference with a specific epoch checkpoint and save plots + CSVs."""
-    if device is None:
-        device = _get_device()
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    stats_path = Path(__file__).parent.parent / "data" / "standardized_audio_files" / "training_set" / "visualization" / "parameter_average_per_time_segment_train.csv"
+    device: torch.device,
+    epoch: int | str,
+) -> tuple[str, dict[str, dict[str, torch.Tensor]]] | None:
+    """Load one checkpoint and return predictions grouped by stem."""
+    stats_path = (
+        Path(__file__).parent.parent
+        / "data"
+        / "standardized_audio_files"
+        / "training_set"
+        / "visualization"
+        / "parameter_average_per_time_segment_train.csv"
+    )
 
     biases = _load_time_biases(stats_path)
     model = PsychoacousticModel(initial_temporal_biases=biases).to(device)
+
     if epoch == "newest":
         ckpt_files = sorted(Path(checkpoint_dir).glob("epoch_*.pt"))
         if not ckpt_files:
             print("No checkpoint found — skipping comparison")
-            return
+            return None
         ckpt_path = ckpt_files[-1]
     else:
         ckpt_path = Path(checkpoint_dir) / f"epoch_{epoch:04d}.pt"
         if not ckpt_path.exists():
             print(f"Checkpoint {ckpt_path.name} not found — skipping")
-            return
+            return None
 
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
-    if not epoch_tag or epoch_tag == "newest":
-        epoch_tag = ckpt_path.stem
+    epoch_label = ckpt_path.stem.replace("epoch_", "Epoch ")
     print(f"Loaded {ckpt_path.name} for comparison")
 
+    predictions: dict[str, dict[str, torch.Tensor]] = {}
     with torch.no_grad():
         for idx in range(len(dataset)):
-            waveform, target = dataset[idx]
+            waveform, _ = dataset[idx]
             inp = waveform.unsqueeze(0).to(device)
-            t0 = time.perf_counter()
             preds = model(inp)
-            elapsed = time.perf_counter() - t0
             stem = dataset.stems[idx]
-
-            meta = {
-                "file": f"{stem}.wav",
-                "input_samples": inp.shape[-1],
-                "input_duration_s": round(inp.shape[-1] / 48000, 2),
-                "inference_time_ms": round(elapsed * 1000, 2),
-                "backbone_frames": model.backbone(inp).shape[-1],
+            predictions[stem] = {
+                name: preds[name][0].detach().cpu() for name in PARAM_NAMES
             }
-            _save_runtime_csv(output_dir, stem, meta, preds, epoch_tag, targets=target)
-            _save_prediction_plots(output_dir, stem, preds, target, epoch_tag)
-            _save_comparison_csv(output_dir, stem, preds, target, epoch_tag)
-    print(f"Comparison saved to {output_dir}")
+
+    return epoch_label, predictions
+
+
+def _save_multi_epoch_plots(
+    output_dir: Path,
+    dataset: PsychoAcousticDataset,
+    epoch_predictions: dict[str, dict[str, dict[str, torch.Tensor]]],
+):
+    """Save one plot per stem/parameter containing reference and all epochs."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for idx in range(len(dataset)):
+        _, target = dataset[idx]
+        stem = dataset.stems[idx]
+
+        for name in PARAM_NAMES:
+            available = {
+                label: preds_by_stem[stem][name]
+                for label, preds_by_stem in epoch_predictions.items()
+                if stem in preds_by_stem
+            }
+            if not available:
+                continue
+
+            max_pred_len = max(pred.shape[-1] for pred in available.values())
+            reference = target[name][:max_pred_len].cpu().numpy()
+
+            fig, ax = plt.subplots(figsize=(10, 4))
+
+            prediction_colors = plt.get_cmap("Set1").colors
+
+            if len(reference) == 1:
+                ax.axhline(reference[0], label="Reference", color="black")
+
+                for i, (label, pred) in enumerate(available.items()):
+                    ax.axhline(
+                        pred[0].item(),
+                        label=label,
+                        color=prediction_colors[i % len(prediction_colors)],
+                    )
+            else:
+                ax.plot(reference, label="Reference", color="black")
+
+                for i, (label, pred) in enumerate(available.items()):
+                    pred_np = pred.numpy()
+                    ref_for_pred = target[name][:len(pred_np)].cpu().numpy()
+                    pred_masked = np.ma.masked_where(np.isnan(ref_for_pred), pred_np)
+
+                    ax.plot(
+                        pred_masked,
+                        label=label,
+                        color=prediction_colors[i % len(prediction_colors)],
+                    )
+
+            # ax.set_title(f"{stem} — {name}")
+            ax.set_xlabel("Time frame")
+            ax.set_ylabel(name)
+            ax.legend()
+            fig.tight_layout()
+            fig.savefig(output_dir / f"{stem}_{name}_comparison.png")
+            plt.close(fig)
 
 
 class _DatasetView(Dataset):
@@ -400,7 +451,7 @@ def run_comparison(
     dataset: PsychoAcousticDataset | None = None,
     audio_workers: int = 0,
 ):
-    """Run inference on specified epochs and save plots/CSVs.
+    """Compare epoch 0, selected epochs, and the reference in shared plots.
 
     Parameters
     ----------
@@ -420,12 +471,27 @@ def run_comparison(
                                             audio_workers=audio_workers)
     elif dataset is None:
         dataset = PsychoAcousticDataset(sound_dir, labels_csv_path, audio_workers=audio_workers)
+
+    if n_samples > 0 and n_samples < len(dataset):
+        dataset = _DatasetView(dataset, list(range(n_samples)))
+
     output_dir = Path(__file__).resolve().parent / "comparison"
     if output_dir.exists():
         shutil.rmtree(output_dir)
-    for ep in epochs:
-        tag = f"epoch_{ep:04d}" if isinstance(ep, int) else ""
-        _compare_epoch(dataset, checkpoint_dir, output_dir, n_samples, device=device, epoch=ep, epoch_tag=tag)
+
+    # Epoch 0 is always the baseline. Additional entries are compared against it.
+    requested_epochs: list[int | str] = [0]
+    requested_epochs.extend(ep for ep in epochs if ep != 0)
+
+    epoch_predictions: dict[str, dict[str, dict[str, torch.Tensor]]] = {}
+    for ep in requested_epochs:
+        result = _load_epoch_predictions(dataset, checkpoint_dir, device, ep)
+        if result is not None:
+            epoch_label, predictions = result
+            epoch_predictions[epoch_label] = predictions
+
+    _save_multi_epoch_plots(output_dir, dataset, epoch_predictions)
+    print(f"Comparison plots saved to {output_dir}")
     hold_plot()
 
 
