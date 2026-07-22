@@ -1,4 +1,6 @@
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -91,7 +93,7 @@ PARAM_YLIMS = {
     "sii_ansi": (-0.1, 1.2),
 }
 PARAM_UNITS = {
-    "loudness_zwtv": "sone",
+    "loudness_zwtv": "son1e",
     "sharpness_din_tv": "acum",
     "roughness_dw": "asper",
     "tnr_ecma_perseg": "dB",
@@ -108,6 +110,37 @@ PARAM_COLORS = {
 SAMPLE_RATE = 48000
 CHUNK_SAMPLES = SAMPLE_RATE  # 1 second
 HOP_SAMPLES = SAMPLE_RATE * 20 // 1000  # 20 ms hop
+
+
+class _StepTimer:
+    """Accumulates per-step wall-clock times and reports averages."""
+
+    def __init__(self):
+        self._data: dict[str, list[float]] = {}
+        self._stamps: dict[str, list[float]] = {}
+        self._t0 = time.perf_counter()
+
+    def lap(self, name: str, start: float):
+        elapsed = time.perf_counter() - start
+        wall = time.perf_counter() - self._t0
+        self._data.setdefault(name, []).append(elapsed)
+        self._stamps.setdefault(name, []).append(wall)
+
+    def summary(self) -> str:
+        lines = ["  Timing summary:"]
+        for name in self._data:
+            times = self._data[name]
+            stamps = self._stamps[name]
+            avg = sum(times) / len(times)
+            mn_i = times.index(min(times))
+            mx_i = times.index(max(times))
+            lines.append(
+                f"    {name:.<30s} avg {avg * 1000:.6f} ms  "
+                f"min {times[mn_i] * 1000:.6f} ms @ {stamps[mn_i]:.6f}s  "
+                f"max {times[mx_i] * 1000:.6f} ms @ {stamps[mx_i]:.6f}s  "
+                f"(n={len(times)}, total {sum(times):.6f}s)"
+            )
+        return "\n".join(lines)
 
 
 def _load_model(device: torch.device) -> PsychoacousticModel:
@@ -151,9 +184,10 @@ def _load_model(device: torch.device) -> PsychoacousticModel:
 class LivePlotter:
     WINDOW_S = 20.0
 
-    def __init__(self):
+    def __init__(self, timer: _StepTimer):
         plt.ion()
         plt.style.use("dark_background")
+        self.timer = timer
 
         self.fig, self.axes = plt.subplots(2, 3, figsize=(14, 7), sharex=True)
         self.fig.suptitle("Psychoacoustic Parameter Estimation (Live)", color="white")
@@ -246,6 +280,7 @@ class LivePlotter:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.fig.savefig(str(path), dpi=150, bbox_inches="tight")
         print(f"Saved: {path.name}")
+        print(self.timer.summary())
 
     def close(self):
         plt.ioff()
@@ -272,10 +307,13 @@ def run_file(
     file_path: Path,
     plotter: LivePlotter,
 ):
+    timer = plotter.timer
+    t = time.perf_counter()
     audio, sr = sf.read(str(file_path))
     audio = _to_mono(audio)
     audio = _resample_if_needed(audio, sr)
     audio = audio.astype(np.float32)
+    timer.lap("file_load", t)
     total_samples = len(audio)
     print(f"File: {file_path.name} — {total_samples / SAMPLE_RATE:.1f}s "
           f"@ {sr}Hz → {SAMPLE_RATE}Hz")
@@ -287,12 +325,17 @@ def run_file(
     with torch.no_grad():
         for start in range(0, total_samples - CHUNK_SAMPLES + 1, HOP_SAMPLES):
             chunk = audio[start : start + CHUNK_SAMPLES]
+            t = time.perf_counter()
             waveform = (
                 torch.from_numpy(chunk).float().unsqueeze(0).unsqueeze(0).to(device)
             )
             preds = model(waveform)
+            timer.lap("model_inference", t)
+
             t_start = start / SAMPLE_RATE
+            t = time.perf_counter()
             plotter.update(preds, t_start)
+            timer.lap("plot_update", t)
 
     print("Finished processing file.")
 
@@ -309,6 +352,7 @@ def run_device(
 
     ring = np.zeros(CHUNK_SAMPLES, dtype=np.float32)
     write_pos = 0
+    timer = plotter.timer
 
     def audio_callback(indata, frames, time_info, status):
         nonlocal ring, write_pos
@@ -330,13 +374,14 @@ def run_device(
         callback=audio_callback,
     ):
         print("Listening... (Ctrl+C to stop)")
-        t0 = time.monotonic()
+        t0 = time.perf_counter()
         hop_s = HOP_SAMPLES / SAMPLE_RATE
         while True:
             try:
                 if write_pos >= CHUNK_SAMPLES:
                     continue
                 chunk = ring.copy()
+                t = time.perf_counter()
                 waveform = (
                     torch.from_numpy(chunk)
                     .float()
@@ -346,9 +391,14 @@ def run_device(
                 )
                 with torch.no_grad():
                     preds = model(waveform)
-                t_elapsed = time.monotonic() - t0
+                timer.lap("model_inference", t)
+
+                t_elapsed = time.perf_counter() - t0
+                t = time.perf_counter()
                 plotter.update(preds, t_elapsed - 1.0)
-                elapsed = time.monotonic() - t0 - t_elapsed
+                timer.lap("plot_update", t)
+
+                elapsed = time.perf_counter() - t0 - t_elapsed
                 sleep_time = hop_s - elapsed
                 if sleep_time > 0:
                     time.sleep(sleep_time)
@@ -383,7 +433,8 @@ def main():
     print(f"Using device: {torch_device}")
 
     model = _load_model(torch_device)
-    plotter = LivePlotter()
+    timer = _StepTimer()
+    plotter = LivePlotter(timer)
 
     try:
         run_device(model, torch_device, device_index, plotter)
