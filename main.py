@@ -30,8 +30,8 @@ def main():
     # )
 
 
-    len = 128
-    len_val = round(0.2 * len)
+    # len = 128
+    # len_val = round(0.2 * len)
     dataset = PsychoAcousticDataset(
         train_dir,
         labels_csv_path,
@@ -45,21 +45,21 @@ def main():
         audio_workers=12
     )
 
-    # train_model(
-    #     sound_dir=train_dir,
-    #     val_sound_dir=val_dir,
-    #     val_dataset=val_dataset,
-    #     labels_csv_path=labels_csv_path,
-    #     checkpoint_dir=checkpoint_dir,
-    #     losses_dir=losses_dir,
-    #     epochs=100,
-    #     lr=1e-3,
-    #     batch_size=128,
-    #     device_id=0,
-    #     num_workers=0,
-    #     use_scheduler=True,
-    #     dataset=dataset,
-    # )
+    train_model(
+        sound_dir=train_dir,
+        val_sound_dir=val_dir,
+        val_dataset=val_dataset,
+        labels_csv_path=labels_csv_path,
+        checkpoint_dir=checkpoint_dir,
+        losses_dir=losses_dir,
+        epochs=100,
+        lr=1e-3,
+        batch_size=128,
+        device_id=0,
+        num_workers=0,
+        use_scheduler=True,
+        dataset=dataset,
+    )
 
   #Epoch 51/100 — loss: 50.812763 — val_loss: 51.131187 — 116.0714s
   # current lr: 0.000008
@@ -79,8 +79,9 @@ def main():
         n_samples=1,
         device_id=0,
         subset_indices=subset_indices,
-        epochs=[0, 40, "newest"],
+        epochs=[0, "newest"],
         dataset=dataset,
+        n_benchmark=10000
     )
 
 

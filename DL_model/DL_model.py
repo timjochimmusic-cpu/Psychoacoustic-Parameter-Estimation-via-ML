@@ -13,26 +13,27 @@ class PsychoacousticModel(nn.Module):
         super().__init__()
         self.backbone = nn.Sequential(
             # Stage 1 — no temporal compression, preserves full resolution
-            nn.Conv1d(1, 10, kernel_size=7, stride=1, padding=3),
+            nn.Conv1d(1, 10, kernel_size=512, stride=1),
             nn.BatchNorm1d(10),
             nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2, stride=2),
             # Stage 2
-            nn.Conv1d(10, 20, kernel_size=5, stride=1, padding=2),
+            nn.Conv1d(10, 20, kernel_size=256, stride=1),
             nn.BatchNorm1d(20),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2),
             # Stage 3
-            nn.Conv1d(20, 40, kernel_size=3, stride=1, padding=1),
+            nn.Conv1d(20, 40, kernel_size=128, stride=1),
             nn.BatchNorm1d(40),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2),
             # Stage 4
-            nn.Conv1d(40, 60, kernel_size=3, stride=1, padding=1),
+            nn.Conv1d(40, 60, kernel_size=64, stride=1),
             nn.BatchNorm1d(60),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2),
             # Stage 5
-            nn.Conv1d(60, 80, kernel_size=3, stride=1, padding=1),
+            nn.Conv1d(60, 80, kernel_size=32, stride=1),
             nn.BatchNorm1d(80),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2, stride=2),
