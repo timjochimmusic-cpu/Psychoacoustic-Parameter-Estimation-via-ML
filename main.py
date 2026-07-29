@@ -29,7 +29,6 @@ def main():
     #     output_folder=labels_dir
     # )
 
-
     len = 128
     len_val = round(0.2 * len)
     dataset = PsychoAcousticDataset(
@@ -39,11 +38,11 @@ def main():
         audio_workers=12
     )
 
-    val_dataset = PsychoAcousticDataset(
-        val_dir, labels_csv_path,
-        # subset_indices=list(range(len_val)),
-        audio_workers=12
-    )
+    # val_dataset = PsychoAcousticDataset(
+    #     val_dir, labels_csv_path,
+    #     # subset_indices=list(range(len_val)),
+    #     audio_workers=12
+    # )
 
     # train_model(
     #     sound_dir=train_dir,
@@ -68,10 +67,14 @@ def main():
   # batch 300/483 (24.0510s)
   # batch 400/483 (24.0514s)
 
+    print("checkpoint_dir:", Path(checkpoint_dir).resolve())
+    print("epoch 0:", (Path(checkpoint_dir) / "epoch_0000.pt").resolve())
+    print("exists:", (Path(checkpoint_dir) / "epoch_0000.pt").exists())
+
 # ab 51 ohne 0.5 when stalled - lr = 0.001 constant
 
     # subset_indices = [0]
-    subset_indices = [3]
+    subset_indices = [0]
     run_comparison(
         sound_dir=sound_dir,
         labels_csv_path=labels_csv_path,
@@ -79,7 +82,7 @@ def main():
         n_samples=1,
         device_id=0,
         subset_indices=subset_indices,
-        epochs=[0, 40, "newest"],
+        epochs=[0, 60],
         dataset=dataset,
     )
 
