@@ -365,12 +365,17 @@ def _save_multi_epoch_plots(
     dataset: PsychoAcousticDataset,
     epoch_predictions: dict[str, dict[str, dict[str, torch.Tensor]]],
 ):
-    """Save one plot per stem/parameter containing reference and all epochs."""
+    """Save individual plots and one subplot figure per stem."""
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    prediction_colors = plt.get_cmap("Set1").colors
 
     for idx in range(len(dataset)):
         _, target = dataset[idx]
         stem = dataset.stems[idx]
+
+        # Collect parameters that actually have predictions
+        available_params = []
 
         for name in PARAM_NAMES:
             available = {
@@ -378,18 +383,28 @@ def _save_multi_epoch_plots(
                 for label, preds_by_stem in epoch_predictions.items()
                 if stem in preds_by_stem
             }
-            if not available:
-                continue
 
+            if available:
+                available_params.append((name, available))
+
+        if not available_params:
+            continue
+
+        # --------------------------------------------------
+        # Individual plots
+        # --------------------------------------------------
+        for name, available in available_params:
             max_pred_len = max(pred.shape[-1] for pred in available.values())
             reference = target[name][:max_pred_len].cpu().numpy()
 
             fig, ax = plt.subplots(figsize=(10, 4))
 
-            prediction_colors = plt.get_cmap("Set1").colors
-
             if len(reference) == 1:
-                ax.axhline(reference[0], label="Reference", color="black")
+                ax.axhline(
+                    reference[0],
+                    label="Reference",
+                    color="black",
+                )
 
                 for i, (label, pred) in enumerate(available.items()):
                     ax.axhline(
@@ -398,12 +413,20 @@ def _save_multi_epoch_plots(
                         color=prediction_colors[i % len(prediction_colors)],
                     )
             else:
-                ax.plot(reference, label="Reference", color="black")
+                ax.plot(
+                    reference,
+                    label="Reference",
+                    color="black",
+                )
 
                 for i, (label, pred) in enumerate(available.items()):
                     pred_np = pred.numpy()
                     ref_for_pred = target[name][:len(pred_np)].cpu().numpy()
-                    pred_masked = np.ma.masked_where(np.isnan(ref_for_pred), pred_np)
+
+                    pred_masked = np.ma.masked_where(
+                        np.isnan(ref_for_pred),
+                        pred_np,
+                    )
 
                     ax.plot(
                         pred_masked,
@@ -411,14 +434,102 @@ def _save_multi_epoch_plots(
                         color=prediction_colors[i % len(prediction_colors)],
                     )
 
-            # ax.set_title(f"{stem} — {name}")
             ax.set_xlabel("Time frame")
             ax.set_ylabel(name)
             ax.legend()
+
             fig.tight_layout()
-            fig.savefig(output_dir / f"{stem}_{name}_comparison.png")
+            fig.savefig(
+                output_dir / f"{stem}_{name}_comparison.png",
+                dpi=300,
+            )
             plt.close(fig)
 
+        # --------------------------------------------------
+        # Combined subplot figure
+        # --------------------------------------------------
+        n_plots = len(available_params)
+        n_cols = 3
+        n_rows = int(np.ceil(n_plots / n_cols))
+
+        fig, axes = plt.subplots(
+            n_rows,
+            n_cols,
+            figsize=(14, 4 * n_rows),
+            squeeze=False,
+        )
+
+        axes_flat = axes.flatten()
+
+        for ax, (name, available) in zip(axes_flat, available_params):
+            max_pred_len = max(
+                pred.shape[-1]
+                for pred in available.values()
+            )
+
+            reference = (
+                target[name][:max_pred_len]
+                .cpu()
+                .numpy()
+            )
+
+            if len(reference) == 1:
+                ax.axhline(
+                    reference[0],
+                    label="Reference",
+                    color="black",
+                )
+
+                for i, (label, pred) in enumerate(available.items()):
+                    ax.axhline(
+                        pred[0].item(),
+                        label=label,
+                        color=prediction_colors[i % len(prediction_colors)],
+                    )
+            else:
+                ax.plot(
+                    reference,
+                    label="Reference",
+                    color="black",
+                )
+
+                for i, (label, pred) in enumerate(available.items()):
+                    pred_np = pred.numpy()
+                    ref_for_pred = (
+                        target[name][:len(pred_np)]
+                        .cpu()
+                        .numpy()
+                    )
+
+                    pred_masked = np.ma.masked_where(
+                        np.isnan(ref_for_pred),
+                        pred_np,
+                    )
+
+                    ax.plot(
+                        pred_masked,
+                        label=label,
+                        color=prediction_colors[i % len(prediction_colors)],
+                    )
+
+            ax.set_title(name)
+            ax.set_xlabel("Time frame")
+            ax.set_ylabel(name)
+            ax.legend()
+
+        # Hide unused subplot axes
+        for ax in axes_flat[len(available_params):]:
+            ax.set_visible(False)
+
+        fig.suptitle(stem)
+        fig.tight_layout(rect=[0, 0, 1, 0.97])
+
+        fig.savefig(
+            output_dir / f"{stem}_all_parameters_comparison.png",
+            dpi=300,
+        )
+
+        plt.close(fig)
 
 class _DatasetView(Dataset):
     """Lightweight view over a subset of a PsychoAcousticDataset, sharing the underlying data."""
