@@ -74,47 +74,71 @@ def convert_to_wav(input_folder: Path, output_folder: Path, fs=48000, win_length
             n_channels, n_samples = audio.shape
             rel_stem = f"{file_path.parent.name}_{file_path.stem}"
 
-            if n_samples <= win_length_samples:
-                duration_ms = int(n_samples / fs * 1000)
-                for ch_idx in range(n_channels):
-                    ch_suffix = f"_ch{ch_idx + 1}" if n_channels > 1 else ""
-                    content_stem = f"{rel_stem}_00000-{duration_ms:05d}ms{ch_suffix}"
-                    if content_stem in existing_stems:
-                        print(f"Skipping (already generated): {content_stem}")
-                        continue
-                    idx = next_idx
-                    if _check_limit(idx):
-                        return
-                    output_path = _enumerate_path(content_stem, idx)
-                    sf.write(output_path, audio[ch_idx], fs)
-                    existing_stems.add(content_stem)
-                    next_idx = idx + 1
-                    print(f"Converted ({idx}): {file_path.name} -> {output_path.name}")
-            else:
-                n_windows = (n_samples - win_length_samples) // hop_length + 1
+            duration_ms = int(n_samples / fs * 1000)
 
-                for win_idx in range(n_windows):
-                    start_sample = win_idx * hop_length
-                    end_sample = start_sample + win_length_samples
-                    start_ms = int(start_sample / fs * 1000)
-                    end_ms = int(end_sample / fs * 1000)
+            for ch_idx in range(n_channels):
+                ch_suffix = f"_ch{ch_idx + 1}" if n_channels > 1 else ""
+                content_stem = f"{rel_stem}_00000-{duration_ms:05d}ms{ch_suffix}"
 
-                    for ch_idx in range(n_channels):
-                        ch_suffix = f"_ch{ch_idx + 1}" if n_channels > 1 else ""
-                        content_stem = f"{rel_stem}_{start_ms:05d}-{end_ms:05d}ms{ch_suffix}"
-                        if content_stem in existing_stems:
-                            print(f"Skipping (already generated): {content_stem}")
-                            continue
-                        idx = next_idx
-                        if _check_limit(idx):
-                            return
-                        output_path = _enumerate_path(content_stem, idx)
+                if content_stem in existing_stems:
+                    print(f"Skipping (already generated): {content_stem}")
+                    continue
 
-                        audio_win = audio[ch_idx, start_sample:end_sample]
-                        sf.write(output_path, audio_win, fs)
-                        existing_stems.add(content_stem)
-                        next_idx = idx + 1
-                        print(f"Converted ({idx}): {file_path.name} -> {output_path.name}")
+                idx = next_idx
+                if _check_limit(idx):
+                    return
+
+                output_path = _enumerate_path(content_stem, idx)
+                sf.write(output_path, audio[ch_idx], fs)
+
+                existing_stems.add(content_stem)
+                next_idx = idx + 1
+            print(f"Converted ({idx}): {file_path.name} -> {output_path.name}")
 
         except Exception as e:
             print(f"Failed: {file_path.name} -> {e}")
+
+        #     if n_samples <= win_length_samples:
+        #         duration_ms = int(n_samples / fs * 1000)
+        #         for ch_idx in range(n_channels):
+        #             ch_suffix = f"_ch{ch_idx + 1}" if n_channels > 1 else ""
+        #             content_stem = f"{rel_stem}_00000-{duration_ms:05d}ms{ch_suffix}"
+        #             if content_stem in existing_stems:
+        #                 print(f"Skipping (already generated): {content_stem}")
+        #                 continue
+        #             idx = next_idx
+        #             if _check_limit(idx):
+        #                 return
+        #             output_path = _enumerate_path(content_stem, idx)
+        #             sf.write(output_path, audio[ch_idx], fs)
+        #             existing_stems.add(content_stem)
+        #             next_idx = idx + 1
+        #             print(f"Converted ({idx}): {file_path.name} -> {output_path.name}")
+        #     else:
+        #         n_windows = (n_samples - win_length_samples) // hop_length + 1
+
+        #         for win_idx in range(n_windows):
+        #             start_sample = win_idx * hop_length
+        #             end_sample = start_sample + win_length_samples
+        #             start_ms = int(start_sample / fs * 1000)
+        #             end_ms = int(end_sample / fs * 1000)
+
+        #             for ch_idx in range(n_channels):
+        #                 ch_suffix = f"_ch{ch_idx + 1}" if n_channels > 1 else ""
+        #                 content_stem = f"{rel_stem}_{start_ms:05d}-{end_ms:05d}ms{ch_suffix}"
+        #                 if content_stem in existing_stems:
+        #                     print(f"Skipping (already generated): {content_stem}")
+        #                     continue
+        #                 idx = next_idx
+        #                 if _check_limit(idx):
+        #                     return
+        #                 output_path = _enumerate_path(content_stem, idx)
+
+        #                 audio_win = audio[ch_idx, start_sample:end_sample]
+        #                 sf.write(output_path, audio_win, fs)
+        #                 existing_stems.add(content_stem)
+        #                 next_idx = idx + 1
+        #                 print(f"Converted ({idx}): {file_path.name} -> {output_path.name}")
+
+        # except Exception as e:
+        #     print(f"Failed: {file_path.name} -> {e}")
