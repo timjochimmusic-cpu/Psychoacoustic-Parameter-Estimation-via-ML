@@ -15,6 +15,7 @@ def main():
     labels_csv_path = root / "all_psychoacoustic_labels.csv"
     checkpoint_dir = Path("DL_model") / "epochs"
     losses_dir = Path("DL_model") / "losses"
+    labels_dir = Path("data") / "reference_data_full_file"
 
     convert_to_wav(
         input_folder=raw_dir,
