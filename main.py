@@ -16,26 +16,26 @@ def main():
     checkpoint_dir = Path("DL_model") / "epochs"
     losses_dir = Path("DL_model") / "losses"
 
-    # convert_to_wav(
-    #     input_folder=raw_dir,
-    #     output_folder=sound_dir,
-    #     fs=48000,
-    #     win_length_samples=1,
-    #     number_samples=None
-    # )
+    convert_to_wav(
+        input_folder=raw_dir,
+        output_folder=sound_dir,
+        fs=48000,
+        win_length_samples=1,
+        number_samples=None
+    )
 
-    # calculate_reference_values(
-    #     input_folder=sound_dir,
-    #     output_folder=labels_dir
-    # )
+    calculate_reference_values(
+        input_folder=sound_dir,
+        output_folder=labels_dir
+    )
 
-    len = 128
-    len_val = round(0.2 * len)
-    dataset = PsychoAcousticDataset(
-        train_dir,
-        labels_csv_path,
-        # subset_indices=list(range(len)),
-        audio_workers=12
+    # len = 128
+    # len_val = round(0.2 * len)
+    # dataset = PsychoAcousticDataset(
+    #     train_dir,
+    #     labels_csv_path,
+    #     # subset_indices=list(range(len)),
+    #     audio_workers=12
     )
 
     # val_dataset = PsychoAcousticDataset(
@@ -67,24 +67,24 @@ def main():
   # batch 300/483 (24.0510s)
   # batch 400/483 (24.0514s)
 
-    print("checkpoint_dir:", Path(checkpoint_dir).resolve())
-    print("epoch 0:", (Path(checkpoint_dir) / "epoch_0000.pt").resolve())
-    print("exists:", (Path(checkpoint_dir) / "epoch_0000.pt").exists())
+#     print("checkpoint_dir:", Path(checkpoint_dir).resolve())
+#     print("epoch 0:", (Path(checkpoint_dir) / "epoch_0000.pt").resolve())
+#     print("exists:", (Path(checkpoint_dir) / "epoch_0000.pt").exists())
 
-# ab 51 ohne 0.5 when stalled - lr = 0.001 constant
+# # ab 51 ohne 0.5 when stalled - lr = 0.001 constant
 
-    # subset_indices = [0]
-    subset_indices = [0]
-    run_comparison(
-        sound_dir=sound_dir,
-        labels_csv_path=labels_csv_path,
-        checkpoint_dir=checkpoint_dir,
-        n_samples=1,
-        device_id=0,
-        subset_indices=subset_indices,
-        epochs=[0, 60],
-        dataset=dataset,
-    )
+#     # subset_indices = [0]
+#     subset_indices = [0]
+#     run_comparison(
+#         sound_dir=sound_dir,
+#         labels_csv_path=labels_csv_path,
+#         checkpoint_dir=checkpoint_dir,
+#         n_samples=1,
+#         device_id=0,
+#         subset_indices=subset_indices,
+#         epochs=[0, 60],
+#         dataset=dataset,
+#     )
 
 
 
