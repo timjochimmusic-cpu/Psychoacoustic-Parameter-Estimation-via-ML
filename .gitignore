@@ -94,3 +94,11 @@ venv-akt/
 # IDE / OS
 .idea/
 .DS_Store
+
+*.png
+*.jpg
+*.jpeg
+*.pdf
+logs/
+DL_model/comparison/
+DL_model/epochs/
