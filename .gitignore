@@ -71,3 +71,26 @@ data_preprocessing/__pycache__/convert_to_wav.cpython-314.pyc
 data/.DS_Store
 DL_model/.DS_Store
 .DS_Store
+
+# Local / generated datasets
+data/music_dataset_jamendo/
+data/music_dataset_jamendo_split/
+data/test_full_files/
+data/converted_music_dataset_jamendo/
+
+# Generated model outputs
+DL_model/comparison/
+DL_model/epochs/
+
+# Large model/data files
+*.pt
+*.pth
+
+# Environments
+.venv/
+venv/
+venv-akt/
+
+# IDE / OS
+.idea/
+.DS_Store

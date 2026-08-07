@@ -8,8 +8,8 @@ from DL_model.train_model import PsychoAcousticDataset
 
 def main():
     root = Path("data") / "standardized_audio_files" / "training_set"
-    raw_dir = Path("data") / "raw_audio_files"
-    sound_dir = root / "sound_files"
+    raw_dir = Path("data") / "music_dataset_jamendo"
+    sound_dir = Path("data") / "converted_music_dataset_jamendo_full2"
     train_dir = sound_dir / "train"    
     val_dir = sound_dir / "val"
     labels_csv_path = root / "all_psychoacoustic_labels.csv"
@@ -20,9 +20,7 @@ def main():
     convert_to_wav(
         input_folder=raw_dir,
         output_folder=sound_dir,
-        fs=48000,
-        win_length_samples=1,
-        number_samples=None
+        segment_length_s=None
     )
 
     calculate_reference_values(
