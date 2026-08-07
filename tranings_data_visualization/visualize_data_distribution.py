@@ -14,12 +14,35 @@ sys.path.insert(0, _ROOT)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 CSV_PATH = os.path.join(
-    _ROOT, "data", "standardized_audio_files", "training_set",
-    "all_psychoacoustic_labels.csv",
+    _ROOT,
+    "data",
+    "labels",
+    "music_dataset_60s_labels",
+    "music_dataset_60s_all_psychoacoustic_labels.csv",
 )
-OUTPUT_DIR = os.path.join(_ROOT, "data", "standardized_audio_files", "training_set", "visualization")
-TRAIN_DIR = os.path.join(_ROOT, "data", "standardized_audio_files", "training_set", "sound_files", "train")
-VAL_DIR = os.path.join(_ROOT, "data", "standardized_audio_files", "training_set", "sound_files", "val")
+
+OUTPUT_DIR = os.path.join(
+    _ROOT,
+    "data",
+    "visualizations",
+    "music_dataset_60s",
+)
+
+TRAIN_DIR = os.path.join(
+    _ROOT,
+    "data",
+    "processed",
+    "music_dataset_60s_converted",
+    "train",
+)
+
+VAL_DIR = os.path.join(
+    _ROOT,
+    "data",
+    "processed",
+    "music_dataset_60s_converted",
+    "val",
+)
 
 PARAM_NAMES = [
     "loudness_zwtv",
