@@ -10,5 +10,6 @@
 cd /beegfs/home/users/t/tjochim/projects/Psychoacoustic-Parameter-Estimation-via-ML
 source .venv/bin/activate
 
+git pull
 srun python main.py
 
