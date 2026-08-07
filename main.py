@@ -4,7 +4,9 @@ from data_preprocessing.calculate_reference_values import calculate_reference_va
 from data_preprocessing.convert_to_wav import convert_to_wav
 from DL_model.train_model import train_model, run_comparison
 from DL_model.train_model import PsychoAcousticDataset
-
+from tranings_data_visualization.merge_psychoacoustic_labels import merge_psychoacoustic_labels
+import os
+import sys
 
 def main():
     root = Path("data") / "standardized_audio_files" / "training_set"
@@ -15,17 +17,21 @@ def main():
     labels_csv_path = root / "all_psychoacoustic_labels.csv"
     checkpoint_dir = Path("DL_model") / "epochs"
     losses_dir = Path("DL_model") / "losses"
-    labels_dir = Path("data") / "reference_data_full_file"
+    labels_dir = Path("data") / "music_dateset_60s_reference_data"
 
-    convert_to_wav(
-        input_folder=raw_dir,
-        output_folder=sound_dir,
-        segment_length_s=None
-    )
+    # convert_to_wav(
+    #     input_folder=raw_dir,
+    #     output_folder=sound_dir,
+    #     segment_length_s=None
+    # )
 
-    calculate_reference_values(
-        input_folder=sound_dir,
-        output_folder=labels_dir
+    # calculate_reference_values(
+    #     input_folder=sound_dir,
+    #     output_folder=labels_dir
+    # )
+
+    merge_psychoacoustic_labels(
+        labels_dir= labels_dir
     )
 
     # len = 128
@@ -88,6 +94,11 @@ def main():
 
 
 if __name__ == "__main__":
+    if "SLURM_JOB_ID" not in os.environ:
+        sys.exit(
+            "This program must be started via Slurm (sbatch main.sh)."
+        )
+
     main()
 
 """
