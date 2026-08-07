@@ -102,3 +102,4 @@ venv-akt/
 logs/
 DL_model/comparison/
 DL_model/epochs/
+.idea/
