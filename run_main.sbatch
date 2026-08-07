@@ -3,7 +3,7 @@
 #SBATCH --partition=standard
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=64G
-#SBATCH --time=04:00:00
+#SBATCH --time=00:10:00
 #SBATCH --output=/beegfs/home/users/t/tjochim/projects/logs/main-%j.out
 #SBATCH --error=/beegfs/home/users/t/tjochim/projects/logs/main-%j.err
 
