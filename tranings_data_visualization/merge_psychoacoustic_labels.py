@@ -31,7 +31,7 @@ def merge_psychoacoustic_labels(labels_dir):
     """
     output_dir = os.path.join(
         os.path.dirname(labels_dir),
-        "visualization",
+        "merged_labels",
     )
     output_file = os.path.join(
         output_dir,
