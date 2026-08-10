@@ -107,9 +107,3 @@ if __name__ == "__main__":
         )
 
     main()
-
-"""
-Input: Sound File
-Output: Psychoacoustic Parameters
-Reference: Psychoacoustic Parameters berechnet via MOSQITO
-"""
