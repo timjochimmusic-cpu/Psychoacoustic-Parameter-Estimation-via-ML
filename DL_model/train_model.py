@@ -61,6 +61,41 @@ def _get_device(device_id: int = 0) -> torch.device:
 
 
 class PsychoAcousticDataset(Dataset):
+    """
+    PyTorch dataset for paired audio files and psychoacoustic target values.
+
+    The dataset loads psychoacoustic labels from a merged CSV file and groups
+    them by source audio file. Parsed labels are cached as a PyTorch file to
+    avoid repeatedly parsing large CSV files.
+
+    Only labels corresponding to WAV files present in ``sound_dir`` are kept,
+    allowing the same label file to be used for separate training and
+    validation directories.
+
+    Audio files are loaded into memory and optionally read in parallel using
+    multiple worker threads. Loaded waveforms are cached in ``sound_dir`` to
+    speed up subsequent dataset initialization.
+
+    Each dataset item consists of a mono waveform tensor and a dictionary
+    containing the corresponding time-dependent psychoacoustic target tensors.
+
+    Parameters
+    ----------
+    sound_dir : Path
+        Directory containing the WAV files belonging to the dataset split.
+    csv_path : Path
+        Path to the merged CSV file containing psychoacoustic labels.
+    subset_indices : list[int] | None, optional
+        Optional list of dataset indices to include.
+    audio_workers : int, optional
+        Number of threads used for loading audio files. A value of 0 or 1
+        loads files sequentially.
+
+    Returns
+    -------
+    tuple[torch.Tensor, dict[str, torch.Tensor]]
+        A waveform tensor and the corresponding psychoacoustic target tensors.
+    """
     def __init__(self, sound_dir: Path, csv_path: Path, subset_indices: list[int] | None = None,
                  audio_workers: int = 0):
         self.sound_dir = Path(sound_dir)
