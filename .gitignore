@@ -103,3 +103,4 @@ logs/
 DL_model/comparison/
 DL_model/epochs/
 .idea/tree -L 2
+data/\[000005]_music_dataset_jamendo_Acceptance_-_Evgenia_Kostitsyna_119980-179980ms_ch1.csv
