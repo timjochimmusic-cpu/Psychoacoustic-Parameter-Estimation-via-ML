@@ -77,6 +77,7 @@ data/music_dataset_jamendo/
 data/music_dataset_jamendo_split/
 data/test_full_files/
 data/converted_music_dataset_jamendo/
+/data/experiments/
 
 # Generated model outputs
 DL_model/comparison/
@@ -90,6 +91,10 @@ DL_model/epochs/
 .venv/
 venv/
 venv-akt/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
 
 # IDE / OS
 .idea/

@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 import pandas as pd
 import librosa
@@ -10,6 +11,17 @@ SHARPNESS_FRAME_S = 0.002
 SHARPNESS_OVERLAP_S = SHARPNESS_FRAME_S * 5  # 0.01 s
 
 
+def _recording_id(reference_stem: str) -> str:
+    """Remove generated index, time-window, and channel suffixes."""
+    recording = re.sub(r"^\[\d+\]_", "", reference_stem)
+    recording = re.sub(
+        r"_\d+-\d+ms(?:_ch\d+)?$",
+        "",
+        recording,
+    )
+    return recording
+
+
 def convert_to_wav(
     input_folder: Path,
     output_folder: Path,
@@ -17,6 +29,7 @@ def convert_to_wav(
     segment_length_s: float | None = 60.0,
     overlap_s: float = SHARPNESS_OVERLAP_S,
     number_samples: int | None = None,
+    max_segments_per_source: int | None = None,
     include_partial_segment: bool = False,
 ):
     """
@@ -40,10 +53,16 @@ def convert_to_wav(
         Overlap between adjacent segments in seconds.
     number_samples : int | None, optional
         Optional maximum number of output WAV files.
+    max_segments_per_source : int | None, optional
+        Optional maximum number of time segments retained from each original
+        source file. Channel outputs do not count as separate time segments.
     include_partial_segment : bool, optional
         If True, also save the final incomplete segment.
     """
     print("=" * 100)
+
+    if max_segments_per_source is not None and max_segments_per_source <= 0:
+        raise ValueError("max_segments_per_source must be greater than zero")
 
     input_folder = Path(input_folder)
     output_folder = Path(output_folder)
@@ -157,6 +176,9 @@ def convert_to_wav(
                     )
                     continue
 
+            if max_segments_per_source is not None:
+                segments = segments[:max_segments_per_source]
+
             for start_sample, end_sample in segments:
                 start_ms = round(start_sample / fs * 1000)
                 end_ms = round(end_sample / fs * 1000)
@@ -223,6 +245,7 @@ def split_reference_into_training_segments(
     input_folder: Path,
     output_folder: Path,
     segment_length_s: float = 1.0,
+    context_s: float = 1.0,
     include_partial_segment: bool = False,
 ):
     """
@@ -240,11 +263,17 @@ def split_reference_into_training_segments(
         Folder in which the training WAV files are stored.
     segment_length_s : float, optional
         Length of each training segment in seconds.
+    context_s : float, optional
+        Desired audio context on each side of a training segment. Context is
+        recorded in ``segment_mapping.csv`` but is not written as another WAV.
+        Rows touching a reference boundary are marked as incomplete context.
     include_partial_segment : bool, optional
         If True, also save a final segment shorter than ``segment_length_s``.
     """
     if segment_length_s <= 0:
         raise ValueError("segment_length_s must be greater than zero.")
+    if context_s < 0:
+        raise ValueError("context_s must not be negative.")
 
     input_folder = Path(input_folder)
     output_folder = Path(output_folder)
@@ -267,6 +296,7 @@ def split_reference_into_training_segments(
             )
 
         segment_length_samples = round(segment_length_s * fs)
+        context_samples = round(context_s * fs)
         n_samples = len(audio)
 
         if n_samples < segment_length_samples:
@@ -326,11 +356,28 @@ def split_reference_into_training_segments(
                 print(f"Skipping (already exists): {output_path.name}")
 
             mapping_rows.append({
+                "segment_id": training_stem,
                 "source_file": output_path.name,
                 "reference_file": reference_path.name,
+                "recording_id": _recording_id(reference_path.stem),
+                "sample_rate": fs,
+                "start_sample": start_sample,
+                "end_sample": end_sample,
                 "start_ms": start_ms,
                 "end_ms": end_ms,
                 "duration_ms": end_ms - start_ms,
+                "context_start_sample": max(0, start_sample - context_samples),
+                "context_end_sample": min(n_samples, end_sample + context_samples),
+                "context_start_ms": round(
+                    max(0, start_sample - context_samples) / fs * 1000
+                ),
+                "context_end_ms": round(
+                    min(n_samples, end_sample + context_samples) / fs * 1000
+                ),
+                "has_full_context": (
+                    start_sample >= context_samples
+                    and end_sample + context_samples <= n_samples
+                ),
             })
 
     mapping_path = output_folder / "segment_mapping.csv"
