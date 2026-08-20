@@ -48,6 +48,9 @@ def train_contextual_sharpness_prototype(
     device = device or torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -99,6 +102,8 @@ def train_contextual_sharpness_prototype(
     )
 
     history = []
+    best_validation_loss = float("inf")
+    best_epoch = 0
     for epoch in range(1, epochs + 1):
         model.train()
         training_losses = []
@@ -136,6 +141,17 @@ def train_contextual_sharpness_prototype(
             f"train={row['train_sharpness_mse']:.6f}, "
             f"val={row['val_sharpness_mse']:.6f}"
         )
+        if row["val_sharpness_mse"] < best_validation_loss:
+            best_validation_loss = row["val_sharpness_mse"]
+            best_epoch = epoch
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "validation_loss": best_validation_loss,
+                },
+                output_dir / "best_checkpoint.pt",
+            )
 
     history_frame = pd.DataFrame(history)
     history_frame.to_csv(output_dir / "losses.csv", index=False)
@@ -144,6 +160,8 @@ def train_contextual_sharpness_prototype(
             "model_state_dict": model.state_dict(),
             "training_indices": training_indices,
             "validation_indices": validation_indices,
+            "best_epoch": best_epoch,
+            "best_validation_loss": best_validation_loss,
             "history": history,
         },
         output_dir / "prototype_checkpoint.pt",
