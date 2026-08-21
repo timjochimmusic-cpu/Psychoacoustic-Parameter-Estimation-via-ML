@@ -686,6 +686,8 @@ def train_model(
     val_dataset: PsychoAcousticDataset | None = None,
     use_scheduler: bool = True,
     statistics_dir: Path | None = None,
+    scheduler_patience: int = 10,
+    scheduler_factor: float = 0.5,
 ) -> list[dict[str, float]]:
     print("=" * 100)
     device = _get_device(device_id)
@@ -714,7 +716,16 @@ def train_model(
     biases = _load_time_biases(temporal_stats_path)
     model = PsychoacousticModel(initial_temporal_biases=biases).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=10, factor=0.5) if use_scheduler else None
+    scheduler = (
+        torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="min",
+            patience=scheduler_patience,
+            factor=scheduler_factor,
+        )
+        if use_scheduler
+        else None
+    )
 
     # ── Resume from latest checkpoint ──
     start_epoch, history = _resume_checkpoint(model, optimizer, checkpoint_dir)
