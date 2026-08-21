@@ -241,6 +241,7 @@ def _training_step(
     targets: dict[str, torch.Tensor],
     optimizer: torch.optim.Optimizer,
     device: torch.device,
+    loss_stats_path: Path,
 ) -> dict[str, float]:
     """Single forward-backward-update step for one batch."""
     waveform = waveform.to(device)
@@ -248,7 +249,7 @@ def _training_step(
     preds = model(waveform)
     trimmed = {name: targets[name][:, :preds[name].shape[-1]]
                for name in PARAM_NAMES}
-    losses = compute_loss(model, preds, trimmed)
+    losses = compute_loss(model, preds, trimmed, stats_path=loss_stats_path)
     optimizer.zero_grad()
     losses["total"].backward()
     optimizer.step()
@@ -684,6 +685,7 @@ def train_model(
     val_sound_dir: Path | None = None,
     val_dataset: PsychoAcousticDataset | None = None,
     use_scheduler: bool = True,
+    statistics_dir: Path | None = None,
 ) -> list[dict[str, float]]:
     print("=" * 100)
     device = _get_device(device_id)
@@ -696,8 +698,20 @@ def train_model(
     plot_path = losses_dir / "losses.png"
 
     # ── Model ──
-    stats_path = Path(__file__).parent.parent / "data" / "standardized_audio_files" / "training_set" / "visualization" / "parameter_average_per_time_segment_train.csv"
-    biases = _load_time_biases(stats_path)
+    if statistics_dir is None:
+        statistics_dir = (
+            Path(__file__).parent.parent
+            / "data"
+            / "standardized_audio_files"
+            / "training_set"
+            / "visualization"
+        )
+    statistics_dir = Path(statistics_dir)
+    temporal_stats_path = (
+        statistics_dir / "parameter_average_per_time_segment_train.csv"
+    )
+    value_stats_path = statistics_dir / "parameter_value_stats_train.csv"
+    biases = _load_time_biases(temporal_stats_path)
     model = PsychoacousticModel(initial_temporal_biases=biases).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=10, factor=0.5) if use_scheduler else None
@@ -770,7 +784,14 @@ def train_model(
         t_batch_start = time.perf_counter()
         epoch_losses: list[dict[str, float]] = []
         for batch_idx, (waveform, targets) in enumerate(loader):
-            losses = _training_step(model, waveform, targets, optimizer, device)
+            losses = _training_step(
+                model,
+                waveform,
+                targets,
+                optimizer,
+                device,
+                value_stats_path,
+            )
             epoch_losses.append(losses)
             if (batch_idx + 1) % 100 == 0:
                 print(f"  batch {batch_idx + 1}/{n_batches} ({time.perf_counter() - t_batch_start:.4f}s)")
@@ -792,7 +813,12 @@ def train_model(
                     targets = {n: t.to(device) for n, t in targets.items()}
                     preds = model(waveform)
                     trimmed = {n: targets[n][:, :preds[n].shape[-1]] for n in PARAM_NAMES}
-                    v_losses = compute_loss(model, preds, trimmed)
+                    v_losses = compute_loss(
+                        model,
+                        preds,
+                        trimmed,
+                        stats_path=value_stats_path,
+                    )
                     val_losses_epoch.append({k: v.item() for k, v in v_losses.items()})
             model.train()
 

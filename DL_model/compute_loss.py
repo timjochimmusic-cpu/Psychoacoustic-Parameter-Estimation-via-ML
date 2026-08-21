@@ -18,24 +18,35 @@ _STATS_PATH = (
     / "parameter_value_stats_train.csv"
 )
 
-_param_variances: dict[str, float] | None = None
+_param_variances: dict[Path, dict[str, float]] = {}
 
 
 def _get_param_variances(stats_path: Path = _STATS_PATH) -> dict[str, float]:
     """Load and cache per-parameter variance (std**2) from the stats CSV."""
-    global _param_variances
-    if _param_variances is None:
+    stats_path = Path(stats_path).resolve()
+    if stats_path not in _param_variances:
         df = pd.read_csv(stats_path, index_col=0)
-        _param_variances = {
+        variances = {
             name: float(df.loc["std", name]) ** 2 for name in PARAM_NAMES
         }
-    return _param_variances
+        invalid = {
+            name: value
+            for name, value in variances.items()
+            if not torch.isfinite(torch.tensor(value)) or value <= 0
+        }
+        if invalid:
+            raise ValueError(
+                f"Invalid parameter variances in {stats_path}: {invalid}"
+            )
+        _param_variances[stats_path] = variances
+    return _param_variances[stats_path]
 
 
 def compute_loss(
     model: torch.nn.Module,
     preds: dict[str, torch.Tensor],
     targets: dict[str, torch.Tensor],
+    stats_path: Path = _STATS_PATH,
 ) -> dict[str, torch.Tensor]:
     """Per‑parameter MSE, combined into a variance-normalized total.
 
@@ -55,7 +66,7 @@ def compute_loss(
     drowning out the rest.
     """
     device = next(model.parameters()).device
-    variances = _get_param_variances()
+    variances = _get_param_variances(stats_path)
     losses = {}
     valid_losses = []
 
