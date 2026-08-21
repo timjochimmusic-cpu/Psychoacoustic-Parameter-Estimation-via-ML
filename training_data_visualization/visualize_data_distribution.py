@@ -240,15 +240,23 @@ def main():
     df2 = _load_with_source(CSV_PATH)
     print(f"Loaded {len(df2):,} rows")
 
-    df2_train, df2_val = _split_df(df2, train_sources, val_sources)
-    df_train = df2_train.drop(columns=["source_file"])
-    df_val = df2_val.drop(columns=["source_file"])
-    del df2
+    if not train_sources and not val_sources:
+        print(
+            "No train/validation WAV files were found; "
+            "visualizing the complete labels CSV as split 'all'."
+        )
+        datasets = [("all", df2.drop(columns=["source_file"]), df2)]
+    else:
+        df2_train, df2_val = _split_df(df2, train_sources, val_sources)
+        datasets = [
+            ("train", df2_train.drop(columns=["source_file"]), df2_train),
+            ("val", df2_val.drop(columns=["source_file"]), df2_val),
+        ]
 
-    for split_label, split_df, split_df_with_source in [
-        ("train", df_train, df2_train),
-        ("val", df_val, df2_val),
-    ]:
+    for split_label, split_df, split_df_with_source in datasets:
+        if split_df.empty:
+            print(f"\nSkipping empty split: {split_label}")
+            continue
         print(f"\n=== {split_label}: {len(split_df):,} rows ===")
         plot_histograms(split_df, OUTPUT_DIR, split_label)
         plot_average_per_time_segment(split_df, OUTPUT_DIR, split_label)
