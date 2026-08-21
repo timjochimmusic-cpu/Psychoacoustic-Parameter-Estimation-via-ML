@@ -78,6 +78,7 @@ data/music_dataset_jamendo_split/
 data/test_full_files/
 data/converted_music_dataset_jamendo/
 /data/experiments/
+/data/visualizations/
 
 # Generated model outputs
 DL_model/comparison/
