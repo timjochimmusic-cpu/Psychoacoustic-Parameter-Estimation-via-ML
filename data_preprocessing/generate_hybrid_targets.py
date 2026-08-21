@@ -60,6 +60,8 @@ def generate_hybrid_targets(
     max_segments: int | None = None,
     resume: bool = True,
     checkpoint_every: int = 1,
+    shard_index: int | None = None,
+    num_shards: int | None = None,
 ) -> dict:
     mapping_csv = Path(mapping_csv)
     segment_dir = Path(segment_dir)
@@ -67,6 +69,13 @@ def generate_hybrid_targets(
     output_path = Path(output_path)
     if checkpoint_every <= 0:
         raise ValueError("checkpoint_every must be greater than zero")
+    if (shard_index is None) != (num_shards is None):
+        raise ValueError("shard_index and num_shards must be provided together")
+    if num_shards is not None:
+        if num_shards <= 0:
+            raise ValueError("num_shards must be greater than zero")
+        if not 0 <= shard_index < num_shards:
+            raise ValueError("shard_index must be in [0, num_shards)")
 
     mapping = pd.read_csv(mapping_csv)
     required = {
@@ -88,6 +97,23 @@ def generate_hybrid_targets(
         )
 
     mapping = mapping[mapping["has_full_context"].astype(bool)]
+    if num_shards is not None:
+        group_column = (
+            "recording_id" if "recording_id" in mapping else "reference_file"
+        )
+        groups = sorted(mapping[group_column].astype(str).unique())
+        selected_groups = {
+            group
+            for position, group in enumerate(groups)
+            if position % num_shards == shard_index
+        }
+        mapping = mapping[
+            mapping[group_column].astype(str).isin(selected_groups)
+        ]
+        print(
+            f"Shard {shard_index + 1}/{num_shards}: "
+            f"{len(selected_groups)} recording group(s), {len(mapping)} segment(s)"
+        )
     if segment_starts_ms is not None:
         mapping = mapping[mapping["start_ms"].isin(segment_starts_ms)]
     if max_segments is not None:
@@ -253,6 +279,8 @@ def _parse_args() -> argparse.Namespace:
         help="Replace any existing target store instead of resuming it.",
     )
     parser.add_argument("--checkpoint-every", type=int, default=1)
+    parser.add_argument("--shard-index", type=int)
+    parser.add_argument("--num-shards", type=int)
     return parser.parse_args()
 
 
@@ -271,4 +299,6 @@ if __name__ == "__main__":
         max_segments=arguments.max_segments,
         resume=not arguments.no_resume,
         checkpoint_every=arguments.checkpoint_every,
+        shard_index=arguments.shard_index,
+        num_shards=arguments.num_shards,
     )

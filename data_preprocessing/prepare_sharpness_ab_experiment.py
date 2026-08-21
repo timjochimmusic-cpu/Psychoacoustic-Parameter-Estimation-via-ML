@@ -19,7 +19,7 @@ from data_preprocessing.convert_to_wav import (
 def prepare_experiment(
     raw_dir: Path,
     experiment_dir: Path,
-    reference_duration_s: float = 60.0,
+    reference_duration_s: float | None = 60.0,
     validation_fraction: float = 0.2,
     seed: int = 42,
 ) -> None:
@@ -64,6 +64,11 @@ def _parse_args() -> argparse.Namespace:
         default=root / "data" / "experiments" / "sharpness_ab_full",
     )
     parser.add_argument("--reference-duration-s", type=float, default=60.0)
+    parser.add_argument(
+        "--full-recordings",
+        action="store_true",
+        help="Keep complete recordings instead of only their first 60 seconds.",
+    )
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     return parser.parse_args()
@@ -74,7 +79,9 @@ if __name__ == "__main__":
     prepare_experiment(
         raw_dir=arguments.raw_dir,
         experiment_dir=arguments.experiment_dir,
-        reference_duration_s=arguments.reference_duration_s,
+        reference_duration_s=(
+            None if arguments.full_recordings else arguments.reference_duration_s
+        ),
         validation_fraction=arguments.validation_fraction,
         seed=arguments.seed,
     )
