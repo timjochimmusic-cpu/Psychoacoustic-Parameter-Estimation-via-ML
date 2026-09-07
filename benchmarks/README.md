@@ -51,3 +51,35 @@ Job 1922333 failed before Python started because the compute node lacked
 `/usr/bin/time`. The launcher now invokes Python directly; timing remains in
 `report.json`, and resource usage is collected with `sacct`. No preprocessing
 performance measurements were produced by that failed job.
+
+## Isolate full-song memory usage after job 1922355
+
+Job 1922355 reported an OOM kill and both full-song futures failed with a broken
+process pool. The old implementation saved an invalid CSV and continued; merging
+then failed because Loudness had no time axis. This does not identify which
+parameter caused the OOM event. Reference failures now raise an error, cancel
+queued tasks, and prevent the failed recording's CSV from being published.
+Already-running tasks may finish during executor shutdown. Existing CSVs are
+still skipped; do not reuse the failed job's full_labels directory as output.
+
+Run the diagnostic from the HPC checkout:
+
+```bash
+sbatch run_full_reference_diagnostic.sbatch
+```
+
+It reuses job 1922355's complete mono WAV, runs Loudness then Sharpness in separate
+Slurm steps with one worker each, and keeps the original 16 GiB allocation. An
+optional first argument selects another full-WAV directory. Results go into a
+fresh full_reference_diagnostic_JOBID directory with separate parameter folders.
+These folders are diagnostic outputs, not a combined full-label directory for
+merging. No conversion, segmentation, one-second calculations, or training runs.
+If Loudness fails, the job stops before Sharpness.
+
+Collect step-level timing and memory after completion:
+
+```bash
+sacct -j JOBID --format=JobID,JobName%24,State%20,ExitCode,Elapsed,TotalCPU,MaxRSS
+cat full-ref-diagnostic-JOBID.out
+cat full-ref-diagnostic-JOBID.err
+```

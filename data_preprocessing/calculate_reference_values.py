@@ -81,6 +81,7 @@ def calculate_reference_values(
     output_folder: Path,
     one_second: bool = False,
     max_workers: int = 12,
+    parameter: str | None = None,
 ):
     """
     Compute psychoacoustic reference values for mono WAV files.
@@ -121,6 +122,10 @@ def calculate_reference_values(
         if one_second
         else FULL_RECORDING_PARAM_CONFIGS
     )
+    if parameter is not None:
+        parameter_configs = [config for config in parameter_configs if config[0] == parameter]
+        if not parameter_configs:
+            raise ValueError(f"Parameter {parameter} is not available in this calculation mode")
 
     with ProcessPoolExecutor(
         max_workers=max_workers
@@ -192,6 +197,11 @@ def calculate_reference_values(
                     error,
                 ) = result
 
+                if error or values is None:
+                    raise ValueError(error or "No parameter values returned")
+                if not np.asarray(values).size or not np.isfinite(values).all():
+                    raise ValueError("Parameter returned empty or nonfinite values")
+
                 file_results.setdefault(
                     name,
                     {},
@@ -200,28 +210,10 @@ def calculate_reference_values(
                     "times": times,
                 }
 
-                if error:
-                    print(
-                        f"{RED}Failed "
-                        f"{name}/{param_name}: "
-                        f"{error}{RESET}"
-                    )
-
             except Exception as exc:
-
-                file_results.setdefault(
-                    name,
-                    {},
-                )[param_name] = {
-                    "values": None,
-                    "times": None,
-                }
-
-                print(
-                    f"{RED}Failed "
-                    f"{name}/{param_name}: "
-                    f"{exc}{RESET}"
-                )
+                for pending in future_to_info:
+                    pending.cancel()
+                raise RuntimeError(f"Failed {name}/{param_name}: {exc}") from exc
 
             rem = (
                 remaining.get(
@@ -250,10 +242,12 @@ def calculate_reference_values(
                     / f"{name}.csv"
                 )
 
+                temporary_file = output_file.with_suffix(".csv.tmp")
                 df.to_csv(
-                    output_file,
+                    temporary_file,
                     index=False,
                 )
+                temporary_file.replace(output_file)
 
                 print(
                     f"{GREEN}Saved: "
@@ -793,6 +787,8 @@ if __name__ == "__main__":
     parser.add_argument("input_folder", type=Path, nargs="?")
     parser.add_argument("output_folder", type=Path, nargs="?")
     parser.add_argument("--workers", type=int, default=12)
+    parser.add_argument("--parameter", choices=PARAM_NAMES,
+                        help="Compute just one parameter; use a separate output directory.")
     parser.add_argument(
         "--one-second",
         action="store_true",
@@ -827,4 +823,5 @@ if __name__ == "__main__":
             output_folder=arguments.output_folder,
             one_second=arguments.one_second,
             max_workers=arguments.workers,
+            parameter=arguments.parameter,
         )
