@@ -207,14 +207,24 @@ def plot_value_stats(df: pd.DataFrame, output_dir: str, split_label: str):
     print(f"Saved: {path}")
 
 
-def main():
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+def main(csv_path=CSV_PATH, output_dir=OUTPUT_DIR, all_data=False):
+    os.makedirs(output_dir, exist_ok=True)
+
+    if all_data:
+        frame = _load_with_source(str(csv_path))
+        if frame.empty:
+            raise ValueError("No label rows available for distribution analysis")
+        plot_histograms(frame, output_dir, "all")
+        plot_average_per_time_segment(frame, output_dir, "all")
+        plot_value_stats(frame, output_dir, "all")
+        plot_length_distribution(frame, output_dir, "all")
+        return
 
     train_sources, val_sources = _get_split_sources(TRAIN_DIR, VAL_DIR)
     print(f"train: {len(train_sources)} files — val: {len(val_sources)} files")
 
-    print(f"Reading {CSV_PATH} (with source_file, for splitting) ...")
-    df2 = _load_with_source(CSV_PATH)
+    print(f"Reading {csv_path} (with source_file, for splitting) ...")
+    df2 = _load_with_source(csv_path)
     print(f"Loaded {len(df2):,} rows")
 
     df2_train, df2_val = _split_df(df2, train_sources, val_sources)
@@ -227,10 +237,10 @@ def main():
         ("val", df_val, df2_val),
     ]:
         print(f"\n=== {split_label}: {len(split_df):,} rows ===")
-        plot_histograms(split_df, OUTPUT_DIR, split_label)
-        plot_average_per_time_segment(split_df, OUTPUT_DIR, split_label)
-        plot_value_stats(split_df, OUTPUT_DIR, split_label)
-        plot_length_distribution(split_df_with_source, OUTPUT_DIR, split_label)
+        plot_histograms(split_df, output_dir, split_label)
+        plot_average_per_time_segment(split_df, output_dir, split_label)
+        plot_value_stats(split_df, output_dir, split_label)
+        plot_length_distribution(split_df_with_source, output_dir, split_label)
 
         print(f"\nSummary statistics ({split_label}):")
         print(split_df[PARAM_NAMES].describe().to_string())

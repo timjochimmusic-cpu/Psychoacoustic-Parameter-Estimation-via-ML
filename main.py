@@ -39,12 +39,14 @@ def main():
     calculate_reference_values(
         input_folder=full_sound_dir,
         output_folder=full_labels_dir,
+        max_workers=1,
     )
 
     calculate_reference_values(
         input_folder=sound_dir,
         output_folder=one_second_labels_dir,
         one_second=True,
+        max_workers=4,
     )
 
     merge_reference_values(
