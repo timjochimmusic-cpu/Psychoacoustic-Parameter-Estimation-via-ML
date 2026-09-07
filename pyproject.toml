@@ -13,3 +13,16 @@ dependencies = [
     "matplotlib",
     "mosqito",
 ]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "DL_model*",
+    "data_preprocessing*",
+    "visualize_training*",
+]
+namespaces = true
