@@ -14,18 +14,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_folder", type=Path)
     parser.add_argument("output_folder", type=Path)
-    parser.add_argument("--segment-workers", type=int, default=4)
+    parser.add_argument("--full-workers", type=int, default=2)
+    parser.add_argument("--segment-workers", type=int, default=12)
     parser.add_argument("--skip-analysis", action="store_true")
     args = parser.parse_args()
-    if args.segment_workers < 1:
-        parser.error("segment-workers must be positive")
+    if args.full_workers < 1 or args.segment_workers < 1:
+        parser.error("full-workers and segment-workers must be positive")
     source = args.input_folder.resolve(strict=True)
     output = args.output_folder.resolve()
     if source == output or source in output.parents:
         parser.error("Output must be outside the source directory")
     output.mkdir(parents=True, exist_ok=False)
     report = {"status": "running", "input_folder": str(source),
-              "full_workers": 1, "segment_workers": args.segment_workers,
+              "full_workers": args.full_workers, "segment_workers": args.segment_workers,
               "job_id": os.environ.get("SLURM_JOB_ID"), "stages": {}}
     started = time.perf_counter()
 
@@ -71,7 +72,7 @@ def main():
         del mapping
         script = "data_preprocessing/calculate_reference_values.py"
         stage("full_references", [script, output / "full_sound_files",
-                                  output / "full_recording_labels", "--workers", 1])
+                                  output / "full_recording_labels", "--workers", args.full_workers])
         stage("segment_references", [script, output / "sound_files",
                                      output / "one_second_labels", "--one-second",
                                      "--workers", args.segment_workers])

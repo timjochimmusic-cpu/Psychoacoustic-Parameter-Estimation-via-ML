@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=music-references
 #SBATCH --partition=standard
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=12
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
 #SBATCH --output=music-references-%j.out
@@ -15,4 +15,4 @@ export MPLCONFIGDIR="${TMPDIR:-/tmp}/music-references-mpl-${SLURM_JOB_ID}"
 mkdir -p "$MPLCONFIGDIR"
 input="/beegfs/home/users/t/tjochim/projects/Psychoacoustic-Parameter-Estimation-via-ML/data/raw/music_dataset"
 output="data/standardized_audio_files/music_references_${SLURM_JOB_ID}"
-python run_reference_pipeline.py "$input" "$output" --segment-workers "${SLURM_CPUS_PER_TASK}"
+python run_reference_pipeline.py "$input" "$output" --full-workers 2 --segment-workers "${SLURM_CPUS_PER_TASK}"

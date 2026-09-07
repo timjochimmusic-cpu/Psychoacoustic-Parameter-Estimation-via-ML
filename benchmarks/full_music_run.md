@@ -11,9 +11,10 @@ and 21:36 Slurm elapsed. Reported batch MaxRSS was 9,797,492 KiB, approximately
 9.34 GiB. Shared Sharpness took 0.2459 seconds after 504.5734 seconds for Loudness.
 These are measurements for one 183.78-second song, not bounds for longer inputs.
 
-The prepared launcher requests four CPUs, 64 GiB, and a user-selected 12-hour limit,
-with one full-song worker and four one-second workers. Memory allocation remains
-provisional pending source inventory. Memory and runtime scaling are not established
+The prepared launcher requests 12 CPUs, 64 GiB, and a user-selected 12-hour limit,
+with two full-song workers and twelve one-second workers in successive stages.
+The supplied inventory has 39 source files, 78 mono songs, 272.41 mono minutes,
+and a longest song of 363.32 seconds. Memory and runtime scaling are not established
 by a single recording. The earlier 272-minute linear estimate was 31.5 hours;
 stereo duration must count both channels and plotting adds work.
 
