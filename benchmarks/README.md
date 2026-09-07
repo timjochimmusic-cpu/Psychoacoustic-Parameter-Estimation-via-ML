@@ -16,8 +16,8 @@ are discarded when making training segments, matching main.py.
 Every job uses a fresh directory under data/experiments/reference_benchmark_JOBID.
 It records package versions, thread settings, conversion/splitting/reference/
 merge wall times, and parameter task durations in report.json. Reference logs
-contain individual timings. GNU time records resource usage in the Slurm error
-log. After completion, collect Slurm accounting as well:
+contain individual timings. The launcher requires no external timing executable.
+After completion, collect CPU and memory usage from Slurm accounting:
 
 ```bash
 sacct -j JOBID --format=JobID,State,ExitCode,Elapsed,AllocCPUS,TotalCPU,MaxRSS
@@ -47,5 +47,7 @@ cannot pass merely because the merged CSV has the right number of rows.
   song lengths, signal content, concurrency, startup overhead, and storage matter.
   Confirm whether the historical 272 minutes count mono channels the same way.
 
-Initial state: benchmark prepared locally; HPC execution has not occurred because
-gateway SSH authentication failed. No measured benchmark findings are available yet.
+Job 1922333 failed before Python started because the compute node lacked
+`/usr/bin/time`. The launcher now invokes Python directly; timing remains in
+`report.json`, and resource usage is collected with `sacct`. No preprocessing
+performance measurements were produced by that failed job.

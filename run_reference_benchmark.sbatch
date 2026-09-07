@@ -14,4 +14,4 @@ export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_TH
 export PYTHONUNBUFFERED=1
 output="data/experiments/reference_benchmark_${SLURM_JOB_ID}"
 mkdir -p "${output%/*}"
-/usr/bin/time -v python benchmarks/reference_benchmark.py "$1" "$output" --workers "${SLURM_CPUS_PER_TASK}"
+python benchmarks/reference_benchmark.py "$1" "$output" --workers "${SLURM_CPUS_PER_TASK}"
