@@ -33,12 +33,14 @@ cannot pass merely because the merged CSV has the right number of rows.
 - Production currently defaults to 12 workers; the previous smoke allocation
   requested 4 CPUs. This benchmark explicitly matches workers to allocated CPUs
   and limits native numerical threads to one. Production defaults are unchanged.
-- One mono song creates only two full-recording tasks. Extra CPUs cannot speed
-  that stage through the existing task scheduler; the full dataset may achieve
-  better utilization by processing multiple songs concurrently.
-- Each parameter task independently reads its WAV. Full-song Loudness and
-  Sharpness are separate calculations. Inspect the installed MoSQITo implementation
-  before deciding whether shared intermediates could safely avoid duplicated work.
+- The default full-song stage now creates one task per mono song. It calculates
+  Loudness once and derives Sharpness using sharpness_din_from_loudness, preserving
+  sharpness_din_tv's default skip=0 timestamps and existing CSV column names.
+  The large specific-loudness array stays inside the worker. Explicit --parameter
+  diagnostics still use the independent original functions for comparison.
+- One-second parameter tasks independently read their WAV. Multiple full-song
+  tasks can still exceed available memory; the shared computation does not make
+  arbitrary song lengths or worker counts safe under 16 GiB.
 - The merge caches full-song CSVs, but scans full trajectories for each segment.
   Use the measured merge time to decide whether this needs optimization.
 - Task duration sums overlap and are not stage wall times or CPU usage. Compare

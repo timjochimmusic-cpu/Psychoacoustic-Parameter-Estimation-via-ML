@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from mosqito import (
     loudness_zwtv,
     sharpness_din_tv,
+    sharpness_din_from_loudness,
     roughness_dw,
     tnr_ecma_perseg,
     sii_ansi,
@@ -96,6 +97,9 @@ def calculate_reference_values(
     recordings. With ``one_second=True``, it instead calculates Roughness,
     TNR, and SII on isolated one-second training segments.
 
+    Full-recording mode shares one loudness calculation between both targets.
+    An explicit ``parameter`` retains the independent function for diagnostics.
+
     Shorter columns are padded with NaN only for CSV storage. The DataFrame
     row index has no temporal meaning across different parameters.
     """
@@ -150,6 +154,12 @@ def calculate_reference_values(
                 )
                 continue
 
+            if not one_second and parameter is None:
+                future = executor.submit(_compute_full_recording, name, str(audio_path))
+                future_to_info[future] = (name, "full_recording")
+                submitted_count[name] = 1
+                continue
+
             submitted_count[name] = 0
 
             for (
@@ -189,26 +199,16 @@ def calculate_reference_values(
             try:
                 result = future.result()
 
-                (
-                    _,
-                    _,
-                    values,
-                    times,
-                    error,
-                ) = result
-
-                if error or values is None:
-                    raise ValueError(error or "No parameter values returned")
-                if not np.asarray(values).size or not np.isfinite(values).all():
-                    raise ValueError("Parameter returned empty or nonfinite values")
-
-                file_results.setdefault(
-                    name,
-                    {},
-                )[param_name] = {
-                    "values": values,
-                    "times": times,
-                }
+                results = result if param_name == "full_recording" else [result]
+                for _, result_parameter, values, times, error in results:
+                    if error or values is None:
+                        raise ValueError(error or "No parameter values returned")
+                    if not np.asarray(values).size or not np.isfinite(values).all():
+                        raise ValueError("Parameter returned empty or nonfinite values")
+                    file_results.setdefault(name, {})[result_parameter] = {
+                        "values": values,
+                        "times": times,
+                    }
 
             except Exception as exc:
                 for pending in future_to_info:
@@ -253,6 +253,30 @@ def calculate_reference_values(
                     f"{GREEN}Saved: "
                     f"{output_file}{RESET}"
                 )
+
+
+def _compute_full_recording(name, audio_path_str):
+    """Compute both full-song targets with one shared loudness calculation."""
+    signal, sr = sf.read(audio_path_str)
+    duration_s = len(signal) / sr
+    np.seterr(invalid="ignore", divide="ignore")
+    start = time.perf_counter()
+    loudness_result = loudness_zwtv(signal, sr)
+    print(f"[{name}] loudness_zwtv: {time.perf_counter() - start:.4f}s", flush=True)
+    values, times = _extract_values_and_time("loudness_zwtv", loudness_result, duration_s)
+    start = time.perf_counter()
+    sharpness = sharpness_din_from_loudness(loudness_result[0], loudness_result[1])
+    # Match sharpness_din_tv's default skip=0 slicing exactly.
+    sharpness_times = loudness_result[3]
+    cut_index = np.argmin(np.abs(sharpness_times))
+    sharpness_values, sharpness_times = _extract_values_and_time(
+        "sharpness_din_tv", (sharpness[cut_index:], sharpness_times[cut_index:]), duration_s
+    )
+    print(f"[{name}] sharpness_din_from_loudness: {time.perf_counter() - start:.4f}s", flush=True)
+    return [
+        (name, "loudness_zwtv", values, times, None),
+        (name, "sharpness_din_tv", sharpness_values, sharpness_times, None),
+    ]
 
 
 def _compute_param(

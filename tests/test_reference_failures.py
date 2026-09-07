@@ -10,7 +10,7 @@ from data_preprocessing import calculate_reference_values as refs
 
 
 class ReferenceFailureTests(unittest.TestCase):
-    def run_calculation(self, result=None, exception=None):
+    def run_calculation(self, result=None, exception=None, parameter="loudness_zwtv"):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -26,7 +26,11 @@ class ReferenceFailureTests(unittest.TestCase):
             original_stdout = sys.stdout
             try:
                 refs.calculate_reference_values(root, root / "labels", max_workers=1,
-                                                parameter="loudness_zwtv")
+                                                parameter=parameter)
+                if parameter is None:
+                    submit = pool.return_value.__enter__.return_value.submit
+                    self.assertEqual(submit.call_count, 1)
+                    self.assertIs(submit.call_args.args[0], refs._compute_full_recording)
             finally:
                 sys.stdout = original_stdout
         return root / "labels"
@@ -55,6 +59,19 @@ class ReferenceFailureTests(unittest.TestCase):
         frame = refs.pd.read_csv(labels / "song.csv")
         self.assertEqual(frame["loudness_zwtv"].tolist(), [1., 2.])
         self.assertEqual(list(labels.glob("*.tmp")), [])
+
+    def test_default_mode_saves_both_targets_from_one_task(self):
+        rows = [("song", name, np.array([1., 2.]), np.array([0., .002]), None)
+                for name in ("loudness_zwtv", "sharpness_din_tv")]
+        labels = self.run_calculation(rows, parameter=None)
+        frame = refs.pd.read_csv(labels / "song.csv")
+        self.assertIn("loudness_zwtv_time_s", frame)
+        self.assertIn("sharpness_din_tv_time_s", frame)
+
+    def test_shared_task_failure_does_not_save_csv(self):
+        with self.assertRaisesRegex(RuntimeError, "song/full_recording"):
+            self.run_calculation(exception=RuntimeError("worker terminated"), parameter=None)
+        self.assert_no_csv()
 
 
 if __name__ == "__main__":
