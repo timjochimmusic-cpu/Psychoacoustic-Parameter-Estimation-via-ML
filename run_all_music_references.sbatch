@@ -3,7 +3,7 @@
 #SBATCH --partition=standard
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64G
-#SBATCH --time=2-00:00:00
+#SBATCH --time=12:00:00
 #SBATCH --output=music-references-%j.out
 #SBATCH --error=music-references-%j.err
 set -euo pipefail
