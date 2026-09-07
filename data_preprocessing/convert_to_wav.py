@@ -8,10 +8,6 @@ import numpy as np
 import soundfile as sf
 
 
-SHARPNESS_FRAME_S = 0.002
-SHARPNESS_OVERLAP_S = SHARPNESS_FRAME_S * 5  # 0.01 s
-
-
 def _recording_id(reference_stem: str) -> str:
     """Remove generated index, time-window, and channel suffixes."""
     recording = re.sub(r"^\[\d+\]_", "", reference_stem)
@@ -27,8 +23,8 @@ def convert_to_wav(
     input_folder: Path,
     output_folder: Path,
     fs: int = 48_000,
-    segment_length_s: float | None = 60.0,
-    overlap_s: float = SHARPNESS_OVERLAP_S,
+    segment_length_s: float | None = None,
+    overlap_s: float = 0.0,
     number_samples: int | None = None,
     max_segments_per_source: int | None = None,
     include_partial_segment: bool = False,
@@ -246,7 +242,6 @@ def split_reference_into_training_segments(
     input_folder: Path,
     output_folder: Path,
     segment_length_s: float = 1.0,
-    context_s: float = 1.0,
     include_partial_segment: bool = False,
 ):
     """
@@ -264,18 +259,11 @@ def split_reference_into_training_segments(
         Folder in which the training WAV files are stored.
     segment_length_s : float, optional
         Length of each training segment in seconds.
-    context_s : float, optional
-        Desired audio context on each side of a training segment. Context is
-        recorded in ``segment_mapping.csv`` but is not written as another WAV.
-        Rows touching a reference boundary are marked as incomplete context.
     include_partial_segment : bool, optional
         If True, also save a final segment shorter than ``segment_length_s``.
     """
     if segment_length_s <= 0:
         raise ValueError("segment_length_s must be greater than zero.")
-    if context_s < 0:
-        raise ValueError("context_s must not be negative.")
-
     input_folder = Path(input_folder)
     output_folder = Path(output_folder)
     output_folder.mkdir(parents=True, exist_ok=True)
@@ -297,7 +285,6 @@ def split_reference_into_training_segments(
             )
 
         segment_length_samples = round(segment_length_s * fs)
-        context_samples = round(context_s * fs)
         n_samples = len(audio)
 
         if n_samples < segment_length_samples:
@@ -367,18 +354,6 @@ def split_reference_into_training_segments(
                 "start_ms": start_ms,
                 "end_ms": end_ms,
                 "duration_ms": end_ms - start_ms,
-                "context_start_sample": max(0, start_sample - context_samples),
-                "context_end_sample": min(n_samples, end_sample + context_samples),
-                "context_start_ms": round(
-                    max(0, start_sample - context_samples) / fs * 1000
-                ),
-                "context_end_ms": round(
-                    min(n_samples, end_sample + context_samples) / fs * 1000
-                ),
-                "has_full_context": (
-                    start_sample >= context_samples
-                    and end_sample + context_samples <= n_samples
-                ),
             })
 
     mapping_path = output_folder / "segment_mapping.csv"
@@ -425,5 +400,4 @@ if __name__ == "__main__":
             input_folder=arguments.reference_folder,
             output_folder=arguments.training_segment_folder,
             segment_length_s=1.0,
-            context_s=0.0,
         )
