@@ -80,6 +80,7 @@ def calculate_reference_values(
     input_folder: Path,
     output_folder: Path,
     one_second: bool = False,
+    max_workers: int = 12,
 ):
     """
     Compute psychoacoustic reference values for mono WAV files.
@@ -98,6 +99,8 @@ def calculate_reference_values(
     row index has no temporal meaning across different parameters.
     """
 
+    if max_workers < 1:
+        raise ValueError("max_workers must be positive")
     print("=" * 100)
     sys.stdout = _ColorStdout(sys.stdout)
 
@@ -120,7 +123,7 @@ def calculate_reference_values(
     )
 
     with ProcessPoolExecutor(
-        max_workers=12
+        max_workers=max_workers
     ) as executor:
 
         future_to_info = {}
@@ -789,6 +792,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("input_folder", type=Path, nargs="?")
     parser.add_argument("output_folder", type=Path, nargs="?")
+    parser.add_argument("--workers", type=int, default=12)
     parser.add_argument(
         "--one-second",
         action="store_true",
@@ -822,4 +826,5 @@ if __name__ == "__main__":
             input_folder=arguments.input_folder,
             output_folder=arguments.output_folder,
             one_second=arguments.one_second,
+            max_workers=arguments.workers,
         )
