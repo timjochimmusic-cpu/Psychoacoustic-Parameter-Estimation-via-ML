@@ -668,7 +668,7 @@ def merge_reference_values(
         "reference_file",
         "start_ms",
         "end_ms",
-        "frame_index",
+        "time_index",
         *PARAM_NAMES,
     ]
 
@@ -726,7 +726,7 @@ def merge_reference_values(
                     )
                 targets[parameter_name] = _pad(values, expected_count)
 
-            for frame_index in range(500):
+            for time_index in range(500):
                 output_row = {
                     "source_file": f"{row.segment_id}.csv",
                     "segment_id": row.segment_id,
@@ -734,13 +734,13 @@ def merge_reference_values(
                     "reference_file": reference_name,
                     "start_ms": int(row.start_ms),
                     "end_ms": int(row.end_ms),
-                    "frame_index": frame_index,
+                    "time_index": time_index,
                 }
                 for parameter_name in PARAM_NAMES:
                     parameter_values = targets[parameter_name]
                     output_row[parameter_name] = (
-                        parameter_values[frame_index]
-                        if frame_index < len(parameter_values)
+                        parameter_values[time_index]
+                        if time_index < len(parameter_values)
                         else ""
                     )
                 writer.writerow(output_row)
