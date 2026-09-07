@@ -1,4 +1,5 @@
 import argparse
+import csv
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -22,7 +23,7 @@ BLUE = "\033[94m"
 RESET = "\033[0m"
 
 
-PARAM_CONFIGS = [
+FULL_RECORDING_PARAM_CONFIGS = [
     (
         "loudness_zwtv",
         loudness_zwtv,
@@ -35,6 +36,9 @@ PARAM_CONFIGS = [
         (),
         {},
     ),
+]
+
+ONE_SECOND_PARAM_CONFIGS = [
     (
         "roughness_dw",
         roughness_dw,
@@ -55,11 +59,27 @@ PARAM_CONFIGS = [
     ),
 ]
 
+PARAM_NAMES = [
+    "loudness_zwtv",
+    "sharpness_din_tv",
+    "roughness_dw",
+    "tnr_ecma_perseg",
+    "sii_ansi",
+]
+
+FRAME_COUNTS = {
+    "loudness_zwtv": 500,
+    "sharpness_din_tv": 500,
+    "roughness_dw": 9,
+    "tnr_ecma_perseg": 2,
+    "sii_ansi": 1,
+}
+
 
 def calculate_reference_values(
     input_folder: Path,
     output_folder: Path,
-    include_sii: bool = False,
+    one_second: bool = False,
 ):
     """
     Compute psychoacoustic reference values for mono WAV files.
@@ -70,10 +90,12 @@ def calculate_reference_values(
     Different psychoacoustic parameters may have different temporal
     resolutions. Therefore, every parameter receives its own time column.
 
+    By default, this stage calculates Loudness and Sharpness on complete
+    recordings. With ``one_second=True``, it instead calculates Roughness,
+    TNR, and SII on isolated one-second training segments.
+
     Shorter columns are padded with NaN only for CSV storage. The DataFrame
-    row index has no temporal meaning across different parameters. SII is
-    excluded by default because the training pipeline calculates it for each
-    isolated one-second segment.
+    row index has no temporal meaning across different parameters.
     """
 
     print("=" * 100)
@@ -89,6 +111,12 @@ def calculate_reference_values(
 
     audio_paths = sorted(
         input_folder.glob("*.wav")
+    )
+
+    parameter_configs = (
+        ONE_SECOND_PARAM_CONFIGS
+        if one_second
+        else FULL_RECORDING_PARAM_CONFIGS
     )
 
     with ProcessPoolExecutor(
@@ -115,12 +143,6 @@ def calculate_reference_values(
                 continue
 
             submitted_count[name] = 0
-
-            parameter_configs = (
-                PARAM_CONFIGS
-                if include_sii
-                else [config for config in PARAM_CONFIGS if config[0] != "sii_ansi"]
-            )
 
             for (
                 param_name,
@@ -371,7 +393,7 @@ def _extract_values_and_time(
     if values.ndim == 0:
         values = values.reshape(1)
 
-    # Global parameter, currently SII.
+    # Support scalar metrics when this helper is reused by another stage.
     if values.size == 1:
         return (
             values.reshape(-1),
@@ -554,6 +576,180 @@ def _pad(arr, target_len):
         constant_values=np.nan,
     )
 
+
+def _load_parameter(
+    frame: pd.DataFrame,
+    parameter_name: str,
+    csv_path: Path,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    if parameter_name not in frame:
+        raise ValueError(f"{csv_path} is missing {parameter_name}")
+
+    time_column = f"{parameter_name}_time_s"
+    if time_column not in frame:
+        values = frame[parameter_name].dropna().to_numpy(dtype=float)
+        return values, None
+
+    valid = frame[[parameter_name, time_column]].dropna()
+    values = valid[parameter_name].to_numpy(dtype=float)
+    times = valid[time_column].to_numpy(dtype=float)
+    return values, times
+
+
+def _slice_full_recording_parameter(
+    values: np.ndarray,
+    times: np.ndarray,
+    start_s: float,
+    frame_count: int,
+) -> np.ndarray:
+    """Map one second of a full trajectory to the model's output positions."""
+    result = np.full(frame_count, np.nan, dtype=float)
+    if len(times) == 0:
+        return result
+
+    frame_period_s = 1.0 / frame_count
+    tolerance_s = frame_period_s / 4
+    left_aligned = abs(times[0]) <= tolerance_s
+    relative_times = times - start_s
+
+    if left_aligned:
+        positions = np.rint(relative_times / frame_period_s).astype(int)
+        expected_times = start_s + positions * frame_period_s
+    else:
+        positions = np.rint(relative_times / frame_period_s).astype(int) - 1
+        expected_times = start_s + (positions + 1) * frame_period_s
+
+    selected = (positions >= 0) & (positions < frame_count)
+    selected_positions = positions[selected]
+    if len(np.unique(selected_positions)) != len(selected_positions):
+        raise ValueError("Multiple reference values map to the same frame")
+    if np.any(np.abs(times[selected] - expected_times[selected]) > tolerance_s):
+        raise ValueError("Reference timestamps do not match the 500-frame grid")
+
+    result[selected_positions] = values[selected]
+    return result
+
+
+def merge_reference_values(
+    mapping_csv: Path,
+    full_recording_labels: Path,
+    one_second_labels: Path,
+    output_csv: Path,
+):
+    """Combine mixed-context references into the existing training CSV format."""
+    mapping = pd.read_csv(mapping_csv)
+    required_columns = {
+        "segment_id",
+        "reference_file",
+        "recording_id",
+        "sample_rate",
+        "start_sample",
+        "start_ms",
+        "end_ms",
+        "duration_ms",
+    }
+    missing = required_columns.difference(mapping.columns)
+    if missing:
+        raise ValueError(f"Mapping is missing columns: {sorted(missing)}")
+    if mapping["segment_id"].duplicated().any():
+        raise ValueError("Mapping contains duplicate segment_id values")
+    if not (mapping["duration_ms"] == 1000).all():
+        raise ValueError("Only complete one-second segments can be merged")
+    if output_csv.exists():
+        raise FileExistsError(f"Output already exists: {output_csv}")
+
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = output_csv.with_suffix(output_csv.suffix + ".tmp")
+    full_label_cache = {}
+    fieldnames = [
+        "source_file",
+        "segment_id",
+        "recording_id",
+        "reference_file",
+        "start_ms",
+        "end_ms",
+        "frame_index",
+        *PARAM_NAMES,
+    ]
+
+    with temporary_output.open("w", newline="") as output_handle:
+        writer = csv.DictWriter(output_handle, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for completed, row in enumerate(mapping.itertuples(index=False), start=1):
+            reference_name = str(row.reference_file)
+            if reference_name not in full_label_cache:
+                reference_csv = (
+                    full_recording_labels / f"{Path(reference_name).stem}.csv"
+                )
+                full_frame = pd.read_csv(reference_csv)
+                full_label_cache[reference_name] = {
+                    parameter_name: _load_parameter(
+                        full_frame,
+                        parameter_name,
+                        reference_csv,
+                    )
+                    for parameter_name in (
+                        "loudness_zwtv",
+                        "sharpness_din_tv",
+                    )
+                }
+
+            targets = {}
+            start_s = float(row.start_sample) / int(row.sample_rate)
+            for parameter_name in ("loudness_zwtv", "sharpness_din_tv"):
+                values, times = full_label_cache[reference_name][parameter_name]
+                if times is None:
+                    raise ValueError(
+                        f"Full-recording {parameter_name} has no time axis"
+                    )
+                targets[parameter_name] = _slice_full_recording_parameter(
+                    values,
+                    times,
+                    start_s,
+                    FRAME_COUNTS[parameter_name],
+                )
+
+            segment_label_csv = one_second_labels / f"{row.segment_id}.csv"
+            segment_frame = pd.read_csv(segment_label_csv)
+            for parameter_name in ("roughness_dw", "tnr_ecma_perseg", "sii_ansi"):
+                values, _ = _load_parameter(
+                    segment_frame,
+                    parameter_name,
+                    segment_label_csv,
+                )
+                expected_count = FRAME_COUNTS[parameter_name]
+                if len(values) not in (0, expected_count):
+                    raise ValueError(
+                        f"{segment_label_csv}/{parameter_name}: expected "
+                        f"{expected_count} values, got {len(values)}"
+                    )
+                targets[parameter_name] = _pad(values, expected_count)
+
+            for frame_index in range(500):
+                output_row = {
+                    "source_file": f"{row.segment_id}.csv",
+                    "segment_id": row.segment_id,
+                    "recording_id": row.recording_id,
+                    "reference_file": reference_name,
+                    "start_ms": int(row.start_ms),
+                    "end_ms": int(row.end_ms),
+                    "frame_index": frame_index,
+                }
+                for parameter_name in PARAM_NAMES:
+                    parameter_values = targets[parameter_name]
+                    output_row[parameter_name] = (
+                        parameter_values[frame_index]
+                        if frame_index < len(parameter_values)
+                        else ""
+                    )
+                writer.writerow(output_row)
+
+            print(f"Merged {completed}/{len(mapping)}: {row.segment_id}")
+
+    temporary_output.replace(output_csv)
+    print(f"Saved combined training labels: {output_csv}")
+
 class _ColorStdout:
     def __init__(
         self,
@@ -587,24 +783,43 @@ class _ColorStdout:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description=(
-            "Calculate psychoacoustic reference trajectories for complete "
-            "mono WAV recordings."
+            "Calculate psychoacoustic references or merge previously "
+            "calculated references into a training CSV."
         )
     )
-    parser.add_argument("input_folder", type=Path)
-    parser.add_argument("output_folder", type=Path)
+    parser.add_argument("input_folder", type=Path, nargs="?")
+    parser.add_argument("output_folder", type=Path, nargs="?")
     parser.add_argument(
-        "--include-sii",
+        "--one-second",
         action="store_true",
         help=(
-            "Also calculate one global SII value per complete recording. "
-            "Leave this disabled for the per-second-SII training workflow."
+            "Calculate Roughness, TNR, and SII for isolated one-second "
+            "training files instead of full-recording Loudness/Sharpness."
         ),
+    )
+    parser.add_argument(
+        "--merge",
+        nargs=4,
+        type=Path,
+        metavar=(
+            "MAPPING_CSV",
+            "FULL_LABEL_DIR",
+            "ONE_SECOND_LABEL_DIR",
+            "OUTPUT_CSV",
+        ),
+        help="Merge both calculation modes into one training-compatible CSV.",
     )
     arguments = parser.parse_args()
 
-    calculate_reference_values(
-        input_folder=arguments.input_folder,
-        output_folder=arguments.output_folder,
-        include_sii=arguments.include_sii,
-    )
+    if arguments.merge is not None:
+        if arguments.input_folder is not None or arguments.output_folder is not None:
+            parser.error("input_folder/output_folder cannot be used with --merge")
+        merge_reference_values(*arguments.merge)
+    else:
+        if arguments.input_folder is None or arguments.output_folder is None:
+            parser.error("input_folder and output_folder are required")
+        calculate_reference_values(
+            input_folder=arguments.input_folder,
+            output_folder=arguments.output_folder,
+            one_second=arguments.one_second,
+        )
