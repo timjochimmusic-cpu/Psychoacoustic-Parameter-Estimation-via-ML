@@ -1,3 +1,17 @@
 /data/raw_audio_files/
 /data/standardized_audio_files/
 /DL_model/epochs/
+
+# Generated preprocessing results and local run notes
+/data/experiments/
+/benchmarks/*.md
+/logs/
+/*.out
+/*.err
+*.log
+
+# Local Python environment and caches
+/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
