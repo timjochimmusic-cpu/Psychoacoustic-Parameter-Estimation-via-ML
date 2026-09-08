@@ -207,7 +207,8 @@ def plot_value_stats(df: pd.DataFrame, output_dir: str, split_label: str):
     print(f"Saved: {path}")
 
 
-def main(csv_path=CSV_PATH, output_dir=OUTPUT_DIR, all_data=False):
+def main(csv_path=CSV_PATH, output_dir=OUTPUT_DIR, all_data=False,
+         train_dir=TRAIN_DIR, val_dir=VAL_DIR):
     os.makedirs(output_dir, exist_ok=True)
 
     if all_data:
@@ -220,12 +221,18 @@ def main(csv_path=CSV_PATH, output_dir=OUTPUT_DIR, all_data=False):
         plot_length_distribution(frame, output_dir, "all")
         return
 
-    train_sources, val_sources = _get_split_sources(TRAIN_DIR, VAL_DIR)
+    train_sources, val_sources = _get_split_sources(train_dir, val_dir)
+    if not train_sources or not val_sources:
+        raise ValueError("Both train and validation WAV directories must be nonempty")
+    if train_sources & val_sources:
+        raise ValueError("Train and validation contain overlapping source files")
     print(f"train: {len(train_sources)} files — val: {len(val_sources)} files")
 
     print(f"Reading {csv_path} (with source_file, for splitting) ...")
     df2 = _load_with_source(csv_path)
     print(f"Loaded {len(df2):,} rows")
+    if set(df2["source_file"].unique()) != train_sources | val_sources:
+        raise ValueError("Label sources do not exactly match the train/validation WAVs")
 
     df2_train, df2_val = _split_df(df2, train_sources, val_sources)
     df_train = df2_train.drop(columns=["source_file"])
@@ -247,4 +254,13 @@ def main(csv_path=CSV_PATH, output_dir=OUTPUT_DIR, all_data=False):
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Generate split-specific distributions, temporal biases and value statistics")
+    parser.add_argument("--run-dir", type=Path,
+                        default=Path(CSV_PATH).parent,
+                        help="Directory containing all_psychoacoustic_labels.csv and sound_files/train,val")
+    args = parser.parse_args()
+    main(csv_path=args.run_dir / "all_psychoacoustic_labels.csv",
+         output_dir=args.run_dir / "visualization",
+         train_dir=args.run_dir / "sound_files/train",
+         val_dir=args.run_dir / "sound_files/val")

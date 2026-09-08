@@ -50,6 +50,16 @@ together. The split is approximately 80/20 by track count, not by duration.
 Rerunning the same command resumes partial moves or leaves a completed split
 unchanged; conflicting assignments and missing files are rejected.
 
+After the split, generate training and validation statistics with the existing
+visualization script:
+
+```bash
+MPLBACKEND=Agg python tranings_data_visualization/visualize_data_distribution.py --run-dir data/standardized_audio_files/music_references_1923255
+```
+
+It writes separate `*_train` and `*_val` statistics and plots into the run's
+`visualization/` directory, preserving the earlier `*_all` outputs.
+
 The preprocessing plots and statistics describe **all** data. Split by original
 track, keeping both stereo channels and all their segments in the same split,
 then calculate training-only statistics. Training currently loads
