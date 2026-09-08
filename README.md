@@ -38,6 +38,18 @@ MPLBACKEND=Agg python main.py INPUT_DIR NEW_OUTPUT_DIR --full-workers 2 --segmen
 
 ## Before training
 
+Split an existing run's segments using the mapping's original-track identities:
+
+```bash
+python data_preprocessing/split_train_val.py data/standardized_audio_files/music_references_1923255/sound_files --val-split 0.2 --seed 42
+```
+
+This moves WAVs into `train/` and `val/` and saves `split_mapping.csv` alongside
+the original segment mapping. Both channels and all segments of a track stay
+together. The split is approximately 80/20 by track count, not by duration.
+Rerunning the same command resumes partial moves or leaves a completed split
+unchanged; conflicting assignments and missing files are rejected.
+
 The preprocessing plots and statistics describe **all** data. Split by original
 track, keeping both stereo channels and all their segments in the same split,
 then calculate training-only statistics. Training currently loads
