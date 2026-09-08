@@ -6,8 +6,7 @@ import numpy as np
 import pandas as pd
 import soundfile as sf
 
-from data_preprocessing.reference_inventory import inventory
-from data_preprocessing.validate_reference_csv import validate_reference_csv
+from main import inventory, validate_reference_csv
 
 
 class FullPipelineTests(unittest.TestCase):

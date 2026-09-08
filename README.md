@@ -1,6 +1,6 @@
 # Psychoacoustic reference preprocessing
 
-`run_reference_pipeline.py` converts source audio into complete mono channels,
+`main.py` converts source audio into complete mono channels,
 creates isolated one-second training WAVs, calculates and merges reference labels,
 validates the resulting CSV, then generates distribution plots and statistics.
 Each segment has 500 rows; shorter parameter trajectories use NaN padding.
@@ -33,7 +33,7 @@ overwritten; automatic resume is not implemented. Training is not launched.
 For other inputs, activate the project environment and run:
 
 ```bash
-MPLBACKEND=Agg python run_reference_pipeline.py INPUT_DIR NEW_OUTPUT_DIR --full-workers 2 --segment-workers 12
+MPLBACKEND=Agg python main.py INPUT_DIR NEW_OUTPUT_DIR --full-workers 2 --segment-workers 12
 ```
 
 ## Before training
