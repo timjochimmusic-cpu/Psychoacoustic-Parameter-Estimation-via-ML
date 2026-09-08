@@ -19,16 +19,23 @@ _STATS_PATH = (
 )
 
 _param_variances: dict[str, float] | None = None
+_param_variances_path: Path | None = None
 
 
 def _get_param_variances(stats_path: Path = _STATS_PATH) -> dict[str, float]:
     """Load and cache per-parameter variance (std**2) from the stats CSV."""
-    global _param_variances
-    if _param_variances is None:
+    global _param_variances, _param_variances_path
+    stats_path = Path(stats_path).resolve()
+    if _param_variances is None or _param_variances_path != stats_path:
         df = pd.read_csv(stats_path, index_col=0)
-        _param_variances = {
+        variances = {
             name: float(df.loc["std", name]) ** 2 for name in PARAM_NAMES
         }
+        import math
+        if not all(math.isfinite(v) and v > 0 for v in variances.values()):
+            raise ValueError("Training variances must be finite and positive")
+        _param_variances = variances
+        _param_variances_path = stats_path
     return _param_variances
 
 
@@ -55,7 +62,9 @@ def compute_loss(
     drowning out the rest.
     """
     device = next(model.parameters()).device
-    variances = _get_param_variances()
+    variances = getattr(model, "loss_variances", None)
+    if variances is None:
+        variances = _get_param_variances()
     losses = {}
     valid_losses = []
 

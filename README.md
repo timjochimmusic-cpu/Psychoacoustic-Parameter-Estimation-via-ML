@@ -68,6 +68,23 @@ then calculate training-only statistics. Training currently loads
 `data/standardized_audio_files/training_set/visualization/`. Its input paths must
 also point to the prepared training and validation data.
 
+## GPU training
+
+After split statistics finish, submit a two-epoch check on the existing dataset:
+
+```bash
+sbatch run_training.sbatch
+```
+
+This requests one GPU, 12 CPUs, 64 GiB and 12 hours, using batch size 128,
+SGD with learning rate 0.001 and momentum 0.9, and the existing plateau scheduler.
+The run's training-only temporal biases and variances are loaded explicitly.
+Sharpness targets are unchanged. CUDA is required; nonfinite total losses fail.
+Checkpoints, losses and configuration go to `DL_model/epochs/full_song_JOBID/`.
+Logs are `training-JOBID.out` and `.err`. The first run builds dataset caches.
+An optional first argument sets the epoch count; each submission starts fresh.
+The Python entry point is `python -m DL_model.train_model --help`.
+
 ## Checks
 
 ```bash

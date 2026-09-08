@@ -14,7 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from .DL_model import PsychoacousticModel
 from .params import PARAM_NAMES
-from .compute_loss import compute_loss
+from .compute_loss import compute_loss, _get_param_variances
 from visualize_training.visualize_training import hold_plot, plot_losses
 
 def _load_time_biases(csv_path: str | Path) -> dict[str, torch.Tensor]:
@@ -216,6 +216,8 @@ def _training_step(
                for name in PARAM_NAMES}
     losses = compute_loss(model, preds, trimmed)
     optimizer.zero_grad()
+    if not torch.isfinite(losses["total"]):
+        raise ValueError("Nonfinite training loss")
     losses["total"].backward()
     optimizer.step()
     return {k: v.item() for k, v in losses.items()}
@@ -608,6 +610,7 @@ def train_model(
     val_sound_dir: Path | None = None,
     val_dataset: PsychoAcousticDataset | None = None,
     use_scheduler: bool = True,
+    statistics_dir: Path | None = None,
 ) -> list[dict[str, float]]:
     print("=" * 100)
     device = _get_device(device_id)
@@ -620,9 +623,12 @@ def train_model(
     plot_path = losses_dir / "losses.png"
 
     # ── Model ──
-    stats_path = Path(__file__).parent.parent / "data" / "standardized_audio_files" / "training_set" / "visualization" / "parameter_average_per_time_segment_train.csv"
-    biases = _load_time_biases(stats_path)
+    if statistics_dir is None:
+        statistics_dir = Path(__file__).parent.parent / "data/standardized_audio_files/training_set/visualization"
+    statistics_dir = Path(statistics_dir)
+    biases = _load_time_biases(statistics_dir / "parameter_average_per_time_segment_train.csv")
     model = PsychoacousticModel(initial_temporal_biases=biases).to(device)
+    model.loss_variances = dict(_get_param_variances(statistics_dir / "parameter_value_stats_train.csv"))
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=10, factor=0.5) if use_scheduler else None
 
@@ -717,6 +723,8 @@ def train_model(
                     preds = model(waveform)
                     trimmed = {n: targets[n][:, :preds[n].shape[-1]] for n in PARAM_NAMES}
                     v_losses = compute_loss(model, preds, trimmed)
+                    if not torch.isfinite(v_losses["total"]):
+                        raise ValueError("Nonfinite validation loss")
                     val_losses_epoch.append({k: v.item() for k, v in v_losses.items()})
             model.train()
 
@@ -741,3 +749,46 @@ def train_model(
         _log_epoch(epoch, avg_losses, model, optimizer, history, csv_path, plot_path, checkpoint_dir)
 
     return history
+
+if __name__ == "__main__":
+    import argparse
+    import json
+    parser = argparse.ArgumentParser(description="Train on an existing split reference run")
+    parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--audio-workers", type=int, default=12)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--require-cuda", action="store_true")
+    args = parser.parse_args()
+    if args.epochs < 1 or args.batch_size < 1 or args.lr <= 0 or args.audio_workers < 0:
+        parser.error("Invalid training settings")
+    if args.require_cuda and not torch.cuda.is_available():
+        raise RuntimeError("GPU job has no available CUDA device")
+    run = args.run_dir.resolve(strict=True)
+    for split in ("train", "val"):
+        if not any((run / "sound_files" / split).glob("*.wav")):
+            raise ValueError(f"Missing {split} WAVs")
+    for name in ("parameter_average_per_time_segment_train.csv", "parameter_value_stats_train.csv"):
+        if not (run / "visualization" / name).is_file():
+            raise FileNotFoundError(run / "visualization" / name)
+    if not (run / "all_psychoacoustic_labels.csv").is_file():
+        raise FileNotFoundError(run / "all_psychoacoustic_labels.csv")
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    args.output_dir.mkdir(parents=True, exist_ok=False)
+    (args.output_dir / "config.json").write_text(json.dumps(vars(args), default=str, indent=2))
+    history = train_model(
+        sound_dir=run / "sound_files/train", val_sound_dir=run / "sound_files/val",
+        labels_csv_path=run / "all_psychoacoustic_labels.csv",
+        statistics_dir=run / "visualization",
+        checkpoint_dir=args.output_dir / "epochs", losses_dir=args.output_dir / "losses",
+        epochs=args.epochs, batch_size=args.batch_size, lr=args.lr,
+        audio_workers=args.audio_workers, num_workers=0,
+    )
+    if len(history) != args.epochs:
+        raise RuntimeError("Training did not complete the requested epochs")
+    print(f"Training completed: {args.output_dir}", flush=True)
